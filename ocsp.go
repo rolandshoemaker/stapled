@@ -5,7 +5,12 @@ package stapled
 
 import (
 	"bytes"
+	"crypto"
+	"crypto/sha1"
+	// "crypto/sha256"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -13,6 +18,7 @@ import (
 	"math/big"
 	mrand "math/rand"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -50,11 +56,31 @@ type Entry struct {
 }
 
 func NewEntry(response []byte, issuer *x509.Certificate, serial *big.Int, responders []string, timeout, backoff time.Duration) (*Entry, error) {
+	issuerNameHash := sha1.Sum(issuer.RawSubject)
+	var publicKeyInfo struct {
+		Algorithm pkix.AlgorithmIdentifier
+		PublicKey asn1.BitString
+	}
+	if _, err := asn1.Unmarshal(issuer.RawSubjectPublicKeyInfo, &publicKeyInfo); err != nil {
+		return nil, err
+	}
+	issuerKeyHash := sha1.Sum(publicKeyInfo.PublicKey.RightAlign())
+	ocspRequest := &ocsp.Request{
+		crypto.SHA1,
+		issuerNameHash[:],
+		issuerKeyHash[:], // issuer.SubjectKeyId,
+		serial,
+	}
+	request, err := ocspRequest.Marshal()
+	if err != nil {
+		return nil, err
+	}
 	client := new(http.Client)
 	e := &Entry{
 		serial:      serial,
 		issuer:      issuer,
 		client:      client,
+		request:     request,
 		responders:  responders,
 		timeout:     timeout,
 		baseBackoff: backoff,
@@ -62,7 +88,10 @@ func NewEntry(response []byte, issuer *x509.Certificate, serial *big.Int, respon
 		mu:          new(sync.RWMutex),
 		lastSync:    time.Now(),
 	}
-
+	err = e.updateResponse()
+	if err != nil {
+		return nil, err
+	}
 	return e, nil
 }
 
@@ -91,17 +120,26 @@ func (e *Entry) randomResponder() string {
 func (e *Entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, string, int, error) {
 	backoffSeconds := 0
 	for {
+		fmt.Println("hi")
 		select {
 		case <-ctx.Done():
 			return nil, nil, "", 0, ctx.Err()
 		case <-time.NewTimer(time.Duration(backoffSeconds) * time.Second).C:
 		}
+		if backoffSeconds > 0 {
+			backoffSeconds = 0
+		}
+		fmt.Printf(
+			"%s/%s\n",
+			e.randomResponder(),
+			url.QueryEscape(base64.StdEncoding.EncodeToString(e.request)),
+		)
 		req, err := http.NewRequest(
 			"GET",
 			fmt.Sprintf(
 				"%s/%s",
 				e.randomResponder(),
-				base64.StdEncoding.EncodeToString(e.request),
+				url.QueryEscape(base64.StdEncoding.EncodeToString(e.request)),
 			),
 			nil,
 		)
@@ -114,11 +152,13 @@ func (e *Entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, stri
 		resp, err := e.client.Do(req)
 		if err != nil {
 			// log
+			fmt.Println("derp", err)
 			backoffSeconds = 10
 			continue
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != 200 {
+			fmt.Println("faillled")
 			backoffSeconds = 10
 			if resp.StatusCode == 503 {
 				if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
@@ -135,12 +175,14 @@ func (e *Entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, stri
 		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
 			// log
+			fmt.Println("wut", err)
 			backoffSeconds = 10
 			continue
 		}
 		ocspResp, err := ocsp.ParseResponse(body, e.issuer)
 		if err != nil {
 			// log
+			fmt.Println("UGH", err)
 			backoffSeconds = 10
 			continue
 		}

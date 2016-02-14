@@ -77,25 +77,26 @@ func (s *stapled) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 	}
 
 	// Look up OCSP response from source
-	Entry, found := s.c.lookup(ocspRequest)
+	fmt.Println(ocspRequest)
+	entry, found := s.c.lookup(ocspRequest)
 	if !found {
 		// log.Errorf("No response found for request: %s", b64Body)
 		resp.Write(ocsp.UnauthorizedErrorResponse)
 		return
 	}
-	Entry.mu.RLock()
-	defer Entry.mu.RUnlock()
+	entry.mu.RLock()
+	defer entry.mu.RUnlock()
 	now := time.Now()
-	if Entry.nextUpdate.Before(now) && !s.dontDieOnStaleResponse {
+	if entry.nextUpdate.Before(now) && !s.dontDieOnStaleResponse {
 		panic(fmt.Sprintf(
 			"Was about to serve stale response for %s (%s past NextUpdate), dying instead",
-			Entry.name,
-			now.Sub(Entry.nextUpdate),
+			entry.name,
+			now.Sub(entry.nextUpdate),
 		))
 	}
 
 	resp.WriteHeader(http.StatusOK)
-	resp.Write(Entry.response)
+	resp.Write(entry.response)
 }
 
 func (s *stapled) initResponder(httpAddr string) {

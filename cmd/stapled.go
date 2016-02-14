@@ -81,6 +81,7 @@ func main() {
 			serial = cert.SerialNumber
 			responders = cert.OCSPServer
 		}
+		fmt.Println(def)
 		if def.Issuer != "" {
 			issuerContents, err := ioutil.ReadFile(def.Issuer)
 			if err != nil {
