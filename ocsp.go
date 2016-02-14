@@ -4,12 +4,13 @@
 package stapled
 
 import (
+	"bytes"
 	"crypto/x509"
 	mrand "math/rand"
 	"sync"
 	"time"
 
-	// "golang.org/x/crypto/ocsp"
+	"golang.org/x/crypto/ocsp"
 )
 
 type entry struct {
@@ -36,22 +37,39 @@ func entryFromDefinition() (*entry, error) {
 	return nil, nil
 }
 
-func (e *entry) verifyResponse() error {
-	return nil
+func (e *entry) verifyResponse(respBytes []byte) (*ocsp.Response, error) {
+	return nil, nil
 }
 
 func (e *entry) loadResponseFromFile(cacheFolder string) error {
 	return nil
 }
 
-func (e *entry) fetchResponse() error {
-	return nil
+func (e *entry) fetchResponse() ([]byte, error) {
+	return nil, nil
 }
 
 func (e *entry) updateResponse() error {
-	// fetch response
-	// verify response
-	// update response (only lock during this part!)
+	respBytes, err := e.fetchResponse()
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	if bytes.Compare(respBytes, e.response) == 0 {
+		e.lastSync = now
+		return nil
+	}
+	resp, err := e.verifyResponse(respBytes)
+	if err != nil {
+		return err
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.response = respBytes
+	e.nextUpdate = resp.NextUpdate
+	e.thisUpdate = resp.ThisUpdate
+	e.lastSync = now
+	// write to file if we are going to do that
 	return nil
 }
 
@@ -69,18 +87,14 @@ func (e *entry) timeToUpdate() *time.Duration {
 			return &instantly
 		}
 	}
-	// haven't reached nextPublish yet
-	if e.nextPublish.After(now) {
-		return nil
-	}
 	// check if we are in the first half of the window
-	firstHalf := e.nextUpdate.Sub(e.nextPublish) / 2
+	firstHalf := e.nextUpdate.Sub(e.thisUpdate) / 2
 	if e.nextPublish.Add(firstHalf).After(now) {
 		// wait until the object expires
 		return nil
 	}
 
-	updateTime := e.nextPublish.Add(time.Second * time.Duration(mrand.Intn(int(firstHalf))))
+	updateTime := e.thisUpdate.Add(time.Second * time.Duration(mrand.Intn(int(firstHalf))))
 	if updateTime.Before(now) {
 		return &instantly
 	}

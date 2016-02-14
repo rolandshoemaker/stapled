@@ -43,7 +43,7 @@ func hashRequest(request ocsp.Request) [32]byte {
 	return sha256.Sum256(append(append(request.IssuerNameHash, request.IssuerKeyHash...), serialHash[:]...))
 }
 
-func (c *cache) lookup(request ocsp.Request) (*entry, bool) {
+func (c *cache) lookup(request *ocsp.Request) (*entry, bool) {
 	serialHash := sha256.Sum256(request.SerialNumber.Bytes())
 	hash := sha256.Sum256(append(append(request.IssuerNameHash, request.IssuerKeyHash...), serialHash[:]...))
 	c.mu.RLock()
@@ -52,10 +52,13 @@ func (c *cache) lookup(request ocsp.Request) (*entry, bool) {
 	return e, present
 }
 
-func (c *cache) lookupResponse(request ocsp.Request) ([]byte, bool) {
+func (c *cache) lookupResponse(request *ocsp.Request) ([]byte, bool) {
 	e, present := c.lookup(request)
 	if present {
-		return e.response, present
+		e.mu.RLock()
+		defer e.mu.RUnlock()
+		resp := e.response
+		return resp, present
 	}
 	return nil, present
 }
@@ -67,7 +70,7 @@ func (c *cache) add(e *entry, serial *big.Int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if _, present := c.entries[sha256Hash]; present {
-		// log overwriting or fail?
+		// log overwriting or fail...?
 	}
 	c.entries[sha256Hash] = e
 	for _, h := range [][32]byte{sha1Hash, sha256Hash, sha384Hash, sha512Hash} {
