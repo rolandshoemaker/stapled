@@ -11,8 +11,7 @@ certificates:
       responder: ocsp.some-other-responder.com/
 
 fetcher:
-  deadline: 10s                        # deadline to fetch response (will do N retries until deadline passes)
-  retries: 5                           # number of retries before failing
+  timeout: 10s                        # deadline to fetch response (will do N retries until deadline passes)
   base-backoff: 10s                    # base backoff period for failures
   proxy: user:pass@127.0.0.1:8080      # proxy to talk through
   upstream-stapled: other-stapled:8080 # upstream stapled to talk to
@@ -27,6 +26,6 @@ http:
 stats-addr: 0.0.0.0:7777
 syslog-addr: localhost
 
-seed-cache-from-disk: true
+dont-seed-cache-from-disk: true
 
-die-on-stale-response: true
+dont-die-on-stale-response: true

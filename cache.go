@@ -15,8 +15,8 @@ import (
 )
 
 type cache struct {
-	entries   map[[32]byte]*entry
-	lookupMap map[[32]byte]*entry
+	entries   map[[32]byte]*Entry
+	lookupMap map[[32]byte]*Entry
 	mu        *sync.RWMutex
 }
 
@@ -30,10 +30,10 @@ func hashEntry(h hash.Hash, name, publicKey []byte, serial *big.Int) [32]byte {
 	return sha256.Sum256(append(append(issuerNameHash[:], issuerKeyHash[:]...), serialHash[:]...))
 }
 
-func allHashes(e *entry, serial *big.Int) ([32]byte, [32]byte, [32]byte, [32]byte) {
+func allHashes(e *Entry) ([32]byte, [32]byte, [32]byte, [32]byte) {
 	results := [][32]byte{}
 	for _, h := range []crypto.Hash{crypto.SHA1, crypto.SHA256, crypto.SHA384, crypto.SHA512} {
-		results = append(results, hashEntry(h.New(), e.issuer.RawSubject, e.issuer.RawSubjectPublicKeyInfo, serial))
+		results = append(results, hashEntry(h.New(), e.issuer.RawSubject, e.issuer.RawSubjectPublicKeyInfo, e.serial))
 	}
 	return results[0], results[1], results[2], results[3]
 }
@@ -43,7 +43,7 @@ func hashRequest(request ocsp.Request) [32]byte {
 	return sha256.Sum256(append(append(request.IssuerNameHash, request.IssuerKeyHash...), serialHash[:]...))
 }
 
-func (c *cache) lookup(request *ocsp.Request) (*entry, bool) {
+func (c *cache) lookup(request *ocsp.Request) (*Entry, bool) {
 	serialHash := sha256.Sum256(request.SerialNumber.Bytes())
 	hash := sha256.Sum256(append(append(request.IssuerNameHash, request.IssuerKeyHash...), serialHash[:]...))
 	c.mu.RLock()
@@ -65,8 +65,8 @@ func (c *cache) lookupResponse(request *ocsp.Request) ([]byte, bool) {
 
 // this cache structure seems kind of gross but... idk i think it's prob
 // best for now (until I can think of something better :/)
-func (c *cache) add(e *entry, serial *big.Int) {
-	sha1Hash, sha256Hash, sha384Hash, sha512Hash := allHashes(e, serial)
+func (c *cache) add(e *Entry) {
+	sha1Hash, sha256Hash, sha384Hash, sha512Hash := allHashes(e)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if _, present := c.entries[sha256Hash]; present {

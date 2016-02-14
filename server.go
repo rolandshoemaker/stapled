@@ -6,9 +6,11 @@ package stapled
 
 import (
 	"encoding/base64"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"time"
 
 	"golang.org/x/crypto/ocsp"
 )
@@ -75,18 +77,28 @@ func (s *stapled) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 	}
 
 	// Look up OCSP response from source
-	ocspResponse, found := s.c.lookupResponse(ocspRequest)
+	Entry, found := s.c.lookup(ocspRequest)
 	if !found {
 		// log.Errorf("No response found for request: %s", b64Body)
 		resp.Write(ocsp.UnauthorizedErrorResponse)
 		return
 	}
+	Entry.mu.RLock()
+	defer Entry.mu.RUnlock()
+	now := time.Now()
+	if Entry.nextUpdate.Before(now) && !s.dontDieOnStaleResponse {
+		panic(fmt.Sprintf(
+			"Was about to serve stale response for %s (%s past NextUpdate), dying instead",
+			Entry.name,
+			now.Sub(Entry.nextUpdate),
+		))
+	}
 
 	resp.WriteHeader(http.StatusOK)
-	resp.Write(ocspResponse)
+	resp.Write(Entry.response)
 }
 
-func (s *stapled) initHTTPServer(httpAddr string) {
+func (s *stapled) initResponder(httpAddr string) {
 	m := http.StripPrefix("/", s)
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" && r.URL.Path == "/" {
@@ -96,7 +108,7 @@ func (s *stapled) initHTTPServer(httpAddr string) {
 		}
 		m.ServeHTTP(w, r)
 	})
-	s.httpSrv = &http.Server{
+	s.responder = &http.Server{
 		Addr:    httpAddr,
 		Handler: h,
 	}

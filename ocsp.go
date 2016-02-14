@@ -22,18 +22,22 @@ import (
 	"golang.org/x/net/context"
 )
 
-type entry struct {
+type Entry struct {
+	name        string
+	monitorTick time.Duration
+
+	// cert related
 	serial *big.Int
 	issuer *x509.Certificate
 
-	monitorTick time.Duration
+	// request related
+	responders  []string
+	client      *http.Client
+	timeout     time.Duration
+	baseBackoff time.Duration
+	request     []byte
 
-	responder        string
-	client           *http.Client
-	timeout          time.Duration
-	request          []byte
-	overrideUpstream bool
-
+	// response related
 	lastSync    time.Time
 	maxAge      time.Duration
 	eTag        string
@@ -45,15 +49,20 @@ type entry struct {
 	mu *sync.RWMutex
 }
 
-func entryFromFile() (*entry, error) {
-	return nil, nil
+func NewEntry(response []byte, issuer *x509.Certificate, serial *big.Int, responders []string, timeout, backoff time.Duration) (*Entry, error) {
+	client := new(http.Client)
+	e := &Entry{
+		client:      client,
+		timeout:     timeout,
+		baseBackoff: backoff,
+		mu:          new(sync.RWMutex),
+		lastSync:    time.Now(),
+	}
+
+	return e, nil
 }
 
-func entryFromDefinition() (*entry, error) {
-	return nil, nil
-}
-
-func (e *entry) verifyResponse(resp *ocsp.Response) error {
+func (e *Entry) verifyResponse(resp *ocsp.Response) error {
 	if resp.ThisUpdate.After(time.Now()) {
 		return errors.New("Malformed OCSP response: ThisUpdate is in the future")
 	}
@@ -71,7 +80,11 @@ func (e *entry) verifyResponse(resp *ocsp.Response) error {
 	return nil
 }
 
-func (e *entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, string, int, error) {
+func (e *Entry) randomResponder() string {
+	return e.responders[mrand.Intn(len(e.responders))]
+}
+
+func (e *Entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, string, int, error) {
 	backoffSeconds := 0
 	for {
 		select {
@@ -83,7 +96,7 @@ func (e *entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, stri
 			"GET",
 			fmt.Sprintf(
 				"%s/%s",
-				e.responder,
+				e.randomResponder(),
 				base64.StdEncoding.EncodeToString(e.request),
 			),
 			nil,
@@ -109,6 +122,9 @@ func (e *entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, stri
 						backoffSeconds = seconds
 					}
 				}
+			}
+			if resp.StatusCode == 304 {
+				return nil, nil, "", 0, nil
 			}
 			continue
 		}
@@ -144,7 +160,7 @@ func (e *entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, stri
 	}
 }
 
-func (e *entry) updateResponse() error {
+func (e *Entry) updateResponse() error {
 	now := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), e.timeout)
 	defer cancel()
@@ -152,10 +168,16 @@ func (e *entry) updateResponse() error {
 	if err != nil {
 		return err
 	}
-	if bytes.Compare(respBytes, e.response) == 0 {
+	e.mu.RLock()
+	if respBytes == nil || bytes.Compare(respBytes, e.response) == 0 {
+		e.mu.RUnlock()
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		// return same response or got 304 header
 		e.lastSync = now
 		return nil
 	}
+	e.mu.RUnlock()
 	err = e.verifyResponse(resp)
 	if err != nil {
 		return err
@@ -174,12 +196,15 @@ func (e *entry) updateResponse() error {
 
 var instantly = time.Duration(0)
 
-func (e *entry) timeToUpdate() *time.Duration {
+func (e *Entry) timeToUpdate() *time.Duration {
 	now := time.Now()
 	// no response or nextUpdate is in the past
+	e.mu.RLock()
 	if e.response == nil || e.nextUpdate.Before(now) {
+		e.mu.RUnlock()
 		return &instantly
 	}
+	e.mu.RUnlock()
 	// cache max age has expired
 	if e.maxAge > 0 {
 		if e.lastSync.Add(e.maxAge).Before(now) {
@@ -201,7 +226,7 @@ func (e *entry) timeToUpdate() *time.Duration {
 	return &updateIn
 }
 
-func (e *entry) monitor() {
+func (e *Entry) monitor() {
 	ticker := time.NewTicker(e.monitorTick)
 	for range ticker.C {
 		if updateIn := e.timeToUpdate(); updateIn != nil {
