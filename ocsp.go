@@ -52,9 +52,13 @@ type Entry struct {
 func NewEntry(response []byte, issuer *x509.Certificate, serial *big.Int, responders []string, timeout, backoff time.Duration) (*Entry, error) {
 	client := new(http.Client)
 	e := &Entry{
+		serial:      serial,
+		issuer:      issuer,
 		client:      client,
+		responders:  responders,
 		timeout:     timeout,
 		baseBackoff: backoff,
+		response:    response,
 		mu:          new(sync.RWMutex),
 		lastSync:    time.Now(),
 	}

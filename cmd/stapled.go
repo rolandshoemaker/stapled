@@ -50,7 +50,7 @@ func main() {
 
 	entries := []*stapled.Entry{}
 	for _, def := range config.Definitions.Certificates {
-		if def.Certificate == "" || def.Serial == "" {
+		if def.Certificate == "" && def.Serial == "" {
 			fmt.Println("Either 'certificate' or 'serial' are required")
 			os.Exit(1)
 		}

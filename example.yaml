@@ -1,14 +1,7 @@
-certificates:
-  folder: certs/ # dynamically watched folder, responder is pulled from AIA
-  definitions:   # statically defined
-    - serial: ...                         # not sure which of these/multiple to use here...
-      hash: ...                           #
-      responder: ocsp.some-responder.com/ # responder to fetch response from
-      override-upstream: true             # use defined responder instead of upstream stapled
-      issuer: issuer.der                  # the issuer cert, needed for verififcation
-    - serial: ...
-      hash: ...
-      responder: ocsp.some-other-responder.com/
+definitions:
+  # folder: certs/
+  certificates:
+    - certificate: test.der
 
 fetcher:
   timeout: 10s                        # deadline to fetch response (will do N retries until deadline passes)
