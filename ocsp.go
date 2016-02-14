@@ -27,7 +27,7 @@ type entry struct {
 
 	responder        string
 	client           *http.Client
-	deadline         time.Duration
+	timeout          time.Duration
 	request          []byte
 	overrideUpstream bool
 
@@ -129,12 +129,13 @@ func (e *entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, erro
 }
 
 func (e *entry) updateResponse() error {
-	ctx := context.WithTimeout(context.Background(), e.deadline)
+	now := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), e.timeout)
+	defer cancel()
 	resp, respBytes, err := e.fetchResponse(ctx)
 	if err != nil {
 		return err
 	}
-	now := time.Now()
 	if bytes.Compare(respBytes, e.response) == 0 {
 		e.lastSync = now
 		return nil
