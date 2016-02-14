@@ -14,6 +14,7 @@ import (
 	mrand "math/rand"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,6 +25,8 @@ import (
 type entry struct {
 	serial *big.Int
 	issuer *x509.Certificate
+
+	monitorTick time.Duration
 
 	responder        string
 	client           *http.Client
@@ -68,12 +71,12 @@ func (e *entry) verifyResponse(resp *ocsp.Response) error {
 	return nil
 }
 
-func (e *entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, error) {
+func (e *entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, string, int, error) {
 	backoffSeconds := 0
 	for {
 		select {
 		case <-ctx.Done():
-			return nil, nil, ctx.Err()
+			return nil, nil, "", 0, ctx.Err()
 		case <-time.NewTimer(time.Duration(backoffSeconds) * time.Second).C:
 		}
 		req, err := http.NewRequest(
@@ -86,7 +89,7 @@ func (e *entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, erro
 			nil,
 		)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, "", 0, err
 		}
 		if e.eTag != "" {
 			req.Header.Set("If-None-Match", e.eTag)
@@ -122,7 +125,20 @@ func (e *entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, erro
 			continue
 		}
 		if ocspResp.Status == int(ocsp.Success) {
-			return ocspResp, body, nil
+			maxAge := 0
+			eTag, cacheControl := resp.Header.Get("ETag"), resp.Header.Get("Cache-Control")
+			if cacheControl != "" {
+				cacheControl = strings.Replace(cacheControl, " ", "", -1)
+				for _, p := range strings.Split(cacheControl, ",") {
+					if strings.HasPrefix(p, "max-age=") {
+						maxAge, err = strconv.Atoi(p[8:])
+						if err != nil {
+							// log
+						}
+					}
+				}
+			}
+			return ocspResp, body, eTag, maxAge, nil
 		}
 		backoffSeconds = 10
 	}
@@ -132,7 +148,7 @@ func (e *entry) updateResponse() error {
 	now := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), e.timeout)
 	defer cancel()
-	resp, respBytes, err := e.fetchResponse(ctx)
+	resp, respBytes, eTag, maxAge, err := e.fetchResponse(ctx)
 	if err != nil {
 		return err
 	}
@@ -147,6 +163,8 @@ func (e *entry) updateResponse() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.response = respBytes
+	e.eTag = eTag
+	e.maxAge = time.Second * time.Duration(maxAge)
 	e.nextUpdate = resp.NextUpdate
 	e.thisUpdate = resp.ThisUpdate
 	e.lastSync = now
@@ -181,4 +199,17 @@ func (e *entry) timeToUpdate() *time.Duration {
 	}
 	updateIn := updateTime.Sub(now)
 	return &updateIn
+}
+
+func (e *entry) monitor() {
+	ticker := time.NewTicker(e.monitorTick)
+	for range ticker.C {
+		if updateIn := e.timeToUpdate(); updateIn != nil {
+			time.Sleep(*updateIn)
+			err := e.updateResponse()
+			if err != nil {
+				// log
+			}
+		}
+	}
 }
