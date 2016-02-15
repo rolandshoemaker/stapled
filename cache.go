@@ -78,6 +78,7 @@ func (c *cache) add(e *Entry) error {
 	defer c.mu.Unlock()
 	if _, present := c.entries[sha256Hash]; present {
 		// log overwriting or fail...?
+		c.log.Info("[cache] Overwritting cache entry")
 	}
 	c.entries[sha256Hash] = e
 	for _, h := range [][32]byte{sha1Hash, sha256Hash, sha384Hash, sha512Hash} {
