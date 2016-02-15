@@ -12,20 +12,20 @@ map to the pointer of the entry being requested (one for
 each of the four possible hashing algorithms).
 
 ```
+
     Insert
     ------
 
+                      OCSP hash     Hash
+                      algorithm    request            Lookup table
 
-                                   OCSP hash     Hash
-                                   algorithm    request            Lookup table
-
-                                  +-+sha1+------+sha256+----+688787d8ff144c502c7f5cffaafe2cc5...+-+
-                                  |                          ...                                  |
-                                  +-+sha256+----+sha256+----+2878769bea4d42bbce398959fdbf8b11...+-+
- Issuer Name, Issuer PK, Serial --+                          ...                                  +-----+ Entry
-                                  +-+sha384+----+sha256+----+dbf8b11530aa895f2f28317c4261c225...+-+
-                                  |                          ...                                  |
-                                  +-+sha512+----+sha256-----+2a760e8616b0d8191efd1f5a7441d554...+-+
+                     +-+sha1+------+sha256+----+688787d8ff144c502c7f5cffaafe2cc5...+-+
+                     |                          ...                                  |
+ Issuer Name         +-+sha256+----+sha256+----+2878769bea4d42bbce398959fdbf8b11...+-+
+ Issuer Public Key --+                          ...                                  +-----+ Entry
+ Serial              +-+sha384+----+sha256+----+dbf8b11530aa895f2f28317c4261c225...+-+
+                     |                          ...                                  |
+                     +-+sha512+----+sha256-----+2a760e8616b0d8191efd1f5a7441d554...+-+
 
 
 
@@ -34,8 +34,6 @@ each of the four possible hashing algorithms).
 
     Lookup
     ------
-
-
 
                  Hash
                 request            Lookup table
