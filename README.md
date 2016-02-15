@@ -2,6 +2,8 @@
 
 ![Stapler](https://media.giphy.com/media/RQwkFm79MYuUU/giphy.gif)
 
+> **Note:** This is still a work in progress, idk if I'd actually use it yet!
+
 A caching OCSP daemon that makes stapling less painful. Inspired in
 large part by the [notes](https://gist.github.com/sleevi/5efe9ef98961ecfb4da8)
 written on the topic by Ryan Sleevi.
