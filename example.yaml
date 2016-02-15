@@ -1,9 +1,9 @@
 definitions:
   # folder: certs/
   certificates:
-    - certificate: test.der
+    - certificate: certs/test.der
       # issuer: issuer.der
-    - certificate: test-b.der
+    - certificate: certs/test-b.der
 
 fetcher:
   timeout: 60s                          # deadline to fetch response (will do N retries until deadline passes)

@@ -159,20 +159,20 @@ func (e *Entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, stri
 		if e.eTag != "" {
 			req.Header.Set("If-None-Match", e.eTag)
 		}
-		e.log.Info("Sending request to '%s'", req.URL)
+		e.log.Info("[fetcher] Sending request to '%s'", req.URL)
 		resp, err := e.client.Do(req)
 		if err != nil {
-			e.log.Err("Request for '%s' failed: %s", req.URL, err)
+			e.log.Err("[fetcher] Request for '%s' failed: %s", req.URL, err)
 			backoffSeconds = 10
 			continue
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != 200 {
 			if resp.StatusCode == 304 {
-				e.log.Info("Response for '%s' hasn't changed", req.URL)
+				e.log.Info("[fetcher] Response for '%s' hasn't changed", req.URL)
 				return nil, nil, "", 0, nil
 			}
-			e.log.Err("Request for '%s' got a non-200 response: %d", req.URL, resp.StatusCode)
+			e.log.Err("[fetcher] Request for '%s' got a non-200 response: %d", req.URL, resp.StatusCode)
 			backoffSeconds = 10
 			if resp.StatusCode == 503 {
 				if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
@@ -185,13 +185,13 @@ func (e *Entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, stri
 		}
 		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
-			e.log.Err("Failed to read response body from '%s': %s", req.URL, err)
+			e.log.Err("[fetcher] Failed to read response body from '%s': %s", req.URL, err)
 			backoffSeconds = 10
 			continue
 		}
 		ocspResp, err := ocsp.ParseResponse(body, e.issuer)
 		if err != nil {
-			e.log.Err("Failed to parse response body from '%s': %s", req.URL, err)
+			e.log.Err("[fetcher] Failed to parse response body from '%s': %s", req.URL, err)
 			backoffSeconds = 10
 			continue
 		}
@@ -204,7 +204,7 @@ func (e *Entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, stri
 					if strings.HasPrefix(p, "max-age=") {
 						maxAge, err = strconv.Atoi(p[8:])
 						if err != nil {
-							e.log.Err("Failed to parse max-age parameter in response from '%s': %s", req.URL, err)
+							e.log.Err("[fetcher] Failed to parse max-age parameter in response from '%s': %s", req.URL, err)
 						}
 					}
 				}
