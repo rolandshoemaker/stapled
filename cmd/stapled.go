@@ -21,21 +21,24 @@ func main() {
 
 	configBytes, err := ioutil.ReadFile(configFilename)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Fprintf(os.Stderr, "Failed to read configuration file '%s': %s", configFilename, err)
 		os.Exit(1)
 	}
 	var config stapled.Configuration
 	err = yaml.Unmarshal(configBytes, &config)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Fprintf(os.Stderr, "Failed to parse configuration file: %s", err)
 		os.Exit(1)
 	}
+
+	logger := stapled.NewLogger(config.Syslog.Network, config.Syslog.Addr, config.Syslog.Level)
+
 	baseBackoff := time.Second * time.Duration(10)
 	timeout := time.Second * time.Duration(10)
 	if config.Fetcher.BaseBackoff != "" {
 		backoffSeconds, err := time.ParseDuration(config.Fetcher.BaseBackoff)
 		if err != nil {
-			fmt.Printf("Failed to parse base-backoff: %s\n", err)
+			logger.Err("Failed to parse base-backoff: %s", err)
 			os.Exit(1)
 		}
 		baseBackoff = time.Second * time.Duration(backoffSeconds)
@@ -43,7 +46,7 @@ func main() {
 	if config.Fetcher.Timeout != "" {
 		timeoutSeconds, err := time.ParseDuration(config.Fetcher.Timeout)
 		if err != nil {
-			fmt.Printf("Failed to parse timeout: %s\n", err)
+			logger.Err("Failed to parse timeout: %s", err)
 			os.Exit(1)
 		}
 		timeout = time.Second * time.Duration(timeoutSeconds)
@@ -52,7 +55,7 @@ func main() {
 	entries := []*stapled.Entry{}
 	for _, def := range config.Definitions.Certificates {
 		if def.Certificate == "" && def.Serial == "" {
-			fmt.Println("Either 'certificate' or 'serial' are required")
+			logger.Err("Either 'certificate' or 'serial' are required")
 			os.Exit(1)
 		}
 		var cert *x509.Certificate
@@ -64,64 +67,65 @@ func main() {
 		if def.Serial != "" {
 			serialBytes, err := hex.DecodeString(def.Serial)
 			if err != nil {
-				fmt.Printf("Failed to decode serial '%s': %s\n", def.Serial, err)
+				logger.Err("Failed to decode serial '%s': %s", def.Serial, err)
 				os.Exit(1)
 			}
 			serial = serial.SetBytes(serialBytes)
 		} else {
 			certContents, err := ioutil.ReadFile(def.Certificate)
 			if err != nil {
-				fmt.Printf("Failed to read certificate '%s': %s\n", def.Certificate, err)
+				logger.Err("Failed to read certificate '%s': %s", def.Certificate, err)
 				os.Exit(1)
 			}
 			cert, err = x509.ParseCertificate(certContents)
 			if err != nil {
-				fmt.Printf("Failed to parse certificate '%s': %s\n", def.Certificate, err)
+				logger.Err("Failed to parse certificate '%s': %s", def.Certificate, err)
 				os.Exit(1)
 			}
 			serial = cert.SerialNumber
 			responders = cert.OCSPServer
 		}
-		fmt.Println(def)
 		if def.Issuer != "" {
 			issuerContents, err := ioutil.ReadFile(def.Issuer)
 			if err != nil {
-				fmt.Printf("Failed to read issuer '%s': %s\n", def.Issuer, err)
+				logger.Err("Failed to read issuer '%s': %s", def.Issuer, err)
 				os.Exit(1)
 			}
 			issuer, err = x509.ParseCertificate(issuerContents)
 			if err != nil {
-				fmt.Printf("Failed to parse issuer '%s': %s\n", def.Issuer, err)
+				logger.Err("Failed to parse issuer '%s': %s", def.Issuer, err)
+				os.Exit(1)
 			}
 		} else if cert != nil {
 			if len(cert.IssuingCertificateURL) == 0 {
-				fmt.Println("issuer can only be ommited if the certificate contains AIA information about its issuer")
+				logger.Err("issuer can only be ommited if the certificate contains AIA information about its issuer")
+				os.Exit(1)
 			}
 			for _, issuerURL := range cert.IssuingCertificateURL {
 				// this should be its own function
 				resp, err := http.Get(issuerURL)
 				if err != nil {
-					fmt.Println("Failed to retrieve issuer from '%s': %s\n", issuerURL, err)
+					logger.Err("Failed to retrieve issuer from '%s': %s", issuerURL, err)
 					continue
 				}
 				defer resp.Body.Close()
 				body, err := ioutil.ReadAll(resp.Body)
 				if err != nil {
-					fmt.Println("Failed to read issuer body from '%s': %s\n", issuerURL, err)
+					logger.Err("Failed to read issuer body from '%s': %s", issuerURL, err)
 					continue
 				}
 				issuer, err = x509.ParseCertificate(body)
 				if err != nil {
-					fmt.Printf("Failed to parse issuer body from '%s': %s\n", issuerURL, err)
+					logger.Err("Failed to parse issuer body from '%s': %s", issuerURL, err)
 					continue
 				}
 			}
 		} else {
-			fmt.Println("issuer can only be ommited if the certificate contains AIA information about its issuer")
+			logger.Err("issuer can only be ommited if the certificate contains AIA information about its issuer")
 			os.Exit(1)
 		}
 		if issuer == nil {
-			fmt.Println("unable to retrieve issuer")
+			logger.Err("Unable to retrieve issuer")
 			os.Exit(1)
 		}
 
@@ -132,34 +136,34 @@ func main() {
 			responders = config.Fetcher.UpstreamStapleds
 		}
 		if len(responders) == 0 {
-			fmt.Println("no responders provided")
+			logger.Err("No responders provided")
 			os.Exit(1)
 		}
 		var proxyFunc func(*http.Request) (*url.URL, error)
 		if config.Fetcher.Proxy != "" {
 			proxyURL, err := url.Parse(config.Fetcher.Proxy)
 			if err != nil {
-				fmt.Printf("Failed to parse proxy URL: %s\n", err)
+				logger.Err("Failed to parse proxy URL: %s", err)
 				os.Exit(1)
 			}
 			proxyFunc = http.ProxyURL(proxyURL)
 		}
 		entry, err := stapled.NewEntry(nil, issuer, serial, responders, timeout, baseBackoff, proxyFunc)
 		if err != nil {
-			fmt.Printf("Failed to create entry: %s\n", err)
+			logger.Err("Failed to create entry: %s", err)
 			os.Exit(1)
 		}
 		entries = append(entries, entry)
 	}
 
-	s, err := stapled.New(config.HTTP.Addr, config.DontDieOnStaleResponse, entries)
+	s, err := stapled.New(logger, config.HTTP.Addr, config.DontDieOnStaleResponse, entries)
 	if err != nil {
-		fmt.Println(err)
+		logger.Err("Failed to initialize stapled: %s", err)
 		os.Exit(1)
 	}
 	err = s.Run()
 	if err != nil {
-		fmt.Println(err)
+		logger.Err("stapled failed: %s", err)
 		os.Exit(1)
 	}
 }

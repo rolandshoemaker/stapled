@@ -26,8 +26,12 @@ type Configuration struct {
 	DontSeedCacheFromDisk  bool `yaml:"dont-seed-cache-from-disk"`
 	DontCache              bool `yaml:"dont-cache"`
 
-	SyslogAddr string `yaml:"syslog-addr"`
-	StatsAddr  string `yaml:"stats-addr"`
+	Syslog struct {
+		Network string
+		Addr    string
+		Level   int
+	}
+	StatsAddr string `yaml:"stats-addr"`
 
 	HTTP struct {
 		Addr string
