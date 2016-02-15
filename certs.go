@@ -2,8 +2,11 @@ package stapled
 
 import (
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/pem"
 	"fmt"
+	"hash"
 )
 
 // ParseCertificate parses a certificate from either it's PEM
@@ -20,4 +23,20 @@ func ParseCertificate(contents []byte) (*x509.Certificate, error) {
 		certBytes = block.Bytes
 	}
 	return x509.ParseCertificate(certBytes)
+}
+
+func HashNameAndPKI(h hash.Hash, name, pki []byte) ([]byte, []byte, error) {
+	h.Write(name)
+	nameHash := h.Sum(nil)
+	h.Reset()
+	var publicKeyInfo struct {
+		Algorithm pkix.AlgorithmIdentifier
+		PublicKey asn1.BitString
+	}
+	if _, err := asn1.Unmarshal(pki, &publicKeyInfo); err != nil {
+		return nil, nil, err
+	}
+	h.Write(publicKeyInfo.PublicKey.RightAlign())
+	pkiHash := h.Sum(nil)
+	return nameHash[:], pkiHash[:], nil
 }

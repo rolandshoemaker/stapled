@@ -7,8 +7,6 @@ package stapled
 import (
 	"crypto"
 	"crypto/sha256"
-	"crypto/x509/pkix"
-	"encoding/asn1"
 	"hash"
 	"math/big"
 	"sync"
@@ -23,20 +21,12 @@ type cache struct {
 }
 
 func hashEntry(h hash.Hash, name, pkiBytes []byte, serial *big.Int) ([32]byte, error) {
-	h.Write(name)
-	issuerNameHash := h.Sum(nil)
-	h.Reset()
-	var publicKeyInfo struct {
-		Algorithm pkix.AlgorithmIdentifier
-		PublicKey asn1.BitString
-	}
-	if _, err := asn1.Unmarshal(pkiBytes, &publicKeyInfo); err != nil {
+	issuerNameHash, issuerKeyHash, err := HashNameAndPKI(h, name, pkiBytes)
+	if err != nil {
 		return [32]byte{}, err
 	}
-	h.Write(publicKeyInfo.PublicKey.RightAlign())
-	issuerKeyHash := h.Sum(nil)
 	serialHash := sha256.Sum256(serial.Bytes())
-	return sha256.Sum256(append(append(issuerNameHash[:], issuerKeyHash[:]...), serialHash[:]...)), nil
+	return sha256.Sum256(append(append(issuerNameHash, issuerKeyHash...), serialHash[:]...)), nil
 }
 
 func allHashes(e *Entry) ([32]byte, [32]byte, [32]byte, [32]byte, error) {

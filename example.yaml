@@ -24,7 +24,7 @@ stats-addr: 0.0.0.0:7777
 # syslog:
 #   network: tcp
 #   addr: 127.0.0.1:2020
-#   level: 5
+#   stdout-level: 5
 
 dont-seed-cache-from-disk: true
 

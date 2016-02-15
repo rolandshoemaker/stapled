@@ -5,17 +5,19 @@ import (
 	"log/syslog"
 	"os"
 	"path"
-	"time"
+
+	"github.com/jmhodges/clock"
 )
 
 type Logger struct {
 	SyslogWriter *syslog.Writer
 	stdoutLevel  int
+	clk          clock.Clock
 }
 
 const defaultPriority = syslog.LOG_INFO | syslog.LOG_LOCAL0
 
-func NewLogger(network, addr string, level int) *Logger {
+func NewLogger(network, addr string, level int, clk clock.Clock) *Logger {
 	if level == 0 {
 		level = 7
 	}
@@ -23,13 +25,13 @@ func NewLogger(network, addr string, level int) *Logger {
 	if err != nil {
 		panic(err)
 	}
-	return &Logger{syslogger, level}
+	return &Logger{syslogger, level, clk}
 }
 
 func (log *Logger) logAtLevel(level syslog.Priority, msg string) {
 	if int(level) <= log.stdoutLevel {
 		fmt.Printf("%s %11s %s\n",
-			time.Now().Format("15:04:05"),
+			log.clk.Now().Format("15:04:05"),
 			path.Base(os.Args[0]),
 			msg,
 		)

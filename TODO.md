@@ -1,4 +1,5 @@
 * Write a whole bunch of tests!
+* Way more logging
 * Refactor definition parsing section of `cmd/stapled.go`
 * Allow per definition `proxy`/`upstream-stapleds`
 * Polish definition format...

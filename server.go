@@ -10,7 +10,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
-	"time"
 
 	"golang.org/x/crypto/ocsp"
 )
@@ -85,7 +84,7 @@ func (s *stapled) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 	}
 	entry.mu.RLock()
 	defer entry.mu.RUnlock()
-	now := time.Now()
+	now := s.clk.Now()
 	if entry.nextUpdate.Before(now) && !s.dontDieOnStaleResponse {
 		panic(fmt.Sprintf(
 			"[responder] Was about to serve stale response for %s (%s past NextUpdate), dying instead",

@@ -27,9 +27,9 @@ type Configuration struct {
 	DontCache              bool `yaml:"dont-cache"`
 
 	Syslog struct {
-		Network string
-		Addr    string
-		Level   int
+		Network     string
+		Addr        string
+		StdoutLevel int `yaml:"stdout-level"`
 	}
 	StatsAddr string `yaml:"stats-addr"`
 

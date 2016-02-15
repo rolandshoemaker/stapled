@@ -6,11 +6,8 @@ package stapled
 import (
 	"bytes"
 	"crypto"
-	"crypto/sha1"
 	// "crypto/sha256"
 	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/asn1"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -20,11 +17,13 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/jmhodges/clock"
 	"golang.org/x/crypto/ocsp"
 	"golang.org/x/net/context"
 )
@@ -33,6 +32,7 @@ type Entry struct {
 	name        string
 	monitorTick time.Duration
 	log         *Logger
+	clk         clock.Clock
 
 	// cert related
 	serial *big.Int
@@ -46,45 +46,57 @@ type Entry struct {
 	request     []byte
 
 	// response related
-	lastSync    time.Time
-	maxAge      time.Duration
-	eTag        string
-	response    []byte
-	nextPublish time.Time
-	nextUpdate  time.Time
-	thisUpdate  time.Time
+	lastSync         time.Time
+	maxAge           time.Duration
+	eTag             string
+	response         []byte
+	responseFilename string
+	nextUpdate       time.Time
+	thisUpdate       time.Time
 
 	mu *sync.RWMutex
 }
 
-func NewEntry(log *Logger, response []byte, issuer *x509.Certificate, serial *big.Int, responders []string, timeout, backoff time.Duration, proxy func(*http.Request) (*url.URL, error)) (*Entry, error) {
-	issuerNameHash := sha1.Sum(issuer.RawSubject)
-	var publicKeyInfo struct {
-		Algorithm pkix.AlgorithmIdentifier
-		PublicKey asn1.BitString
-	}
-	if _, err := asn1.Unmarshal(issuer.RawSubjectPublicKeyInfo, &publicKeyInfo); err != nil {
+type EntryDefinition struct {
+	Log         *Logger
+	Clk         clock.Clock
+	CacheFolder string
+	Response    []byte
+	Issuer      *x509.Certificate
+	Serial      *big.Int
+	Responders  []string
+	Timeout     time.Duration
+	Backoff     time.Duration
+	Proxy       func(*http.Request) (*url.URL, error)
+}
+
+func NewEntry(def EntryDefinition) (*Entry, error) {
+	issuerNameHash, issuerKeyHash, err := HashNameAndPKI(
+		crypto.SHA1.New(),
+		def.Issuer.RawSubject,
+		def.Issuer.RawSubjectPublicKeyInfo,
+	)
+	if err != nil {
 		return nil, err
 	}
-	issuerKeyHash := sha1.Sum(publicKeyInfo.PublicKey.RightAlign())
 	ocspRequest := &ocsp.Request{
 		crypto.SHA1,
-		issuerNameHash[:],
-		issuerKeyHash[:], // issuer.SubjectKeyId,
-		serial,
+		issuerNameHash,
+		issuerKeyHash,
+		def.Serial,
 	}
 	request, err := ocspRequest.Marshal()
 	if err != nil {
 		return nil, err
 	}
-	for i := range responders {
-		responders[i] = strings.TrimSuffix(responders[i], "/")
+	for i := range def.Responders {
+		def.Responders[i] = strings.TrimSuffix(def.Responders[i], "/")
 	}
 	client := new(http.Client)
-	if proxy != nil {
+	if def.Proxy != nil {
 		// default transport + proxy
 		client.Transport = &http.Transport{
-			Proxy: proxy,
+			Proxy: def.Proxy,
 			Dial: (&net.Dialer{
 				Timeout:   30 * time.Second,
 				KeepAlive: 30 * time.Second,
@@ -93,29 +105,38 @@ func NewEntry(log *Logger, response []byte, issuer *x509.Certificate, serial *bi
 		}
 	}
 	e := &Entry{
-		log:         log,
-		serial:      serial,
-		issuer:      issuer,
+		log:         def.Log,
+		clk:         def.Clk,
+		serial:      def.Serial,
+		issuer:      def.Issuer,
 		client:      client,
 		request:     request,
-		responders:  responders,
-		timeout:     timeout,
-		baseBackoff: backoff,
-		response:    response,
+		responders:  def.Responders,
+		timeout:     def.Timeout,
+		baseBackoff: def.Backoff,
+		response:    def.Response,
 		mu:          new(sync.RWMutex),
-		lastSync:    time.Now(),
-		monitorTick: 30 * time.Minute,
+		lastSync:    def.Clk.Now(),
+		monitorTick: 1 * time.Minute,
 	}
-	err = e.updateResponse()
-	if err != nil {
-		return nil, err
+	if e.responseFilename != "" {
+		err = e.readFromDisk()
+		if err != nil {
+			return nil, err
+		}
+	}
+	if e.response == nil {
+		err = e.updateResponse()
+		if err != nil {
+			return nil, err
+		}
 	}
 	go e.monitor()
 	return e, nil
 }
 
 func (e *Entry) verifyResponse(resp *ocsp.Response) error {
-	if resp.ThisUpdate.After(time.Now()) {
+	if resp.ThisUpdate.After(e.clk.Now()) {
 		return errors.New("Malformed OCSP response: ThisUpdate is in the future")
 	}
 	if resp.ThisUpdate.After(resp.NextUpdate) {
@@ -215,8 +236,51 @@ func (e *Entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, stri
 	}
 }
 
+// writeToDisk assumes the caller holds a lock
+func (e *Entry) writeToDisk() error {
+	tmp, err := ioutil.TempFile(os.TempDir(), "stapled-response")
+	if err != nil {
+		return err
+	}
+	_, err = tmp.Write(e.response)
+	if err != nil {
+		return err
+	}
+	err = tmp.Sync()
+	if err != nil {
+		return err
+	}
+	err = tmp.Close()
+	if err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), e.responseFilename)
+}
+
+func (e *Entry) readFromDisk() error {
+	respBytes, err := ioutil.ReadFile(e.responseFilename)
+	if err != nil {
+		return err
+	}
+	resp, err := ocsp.ParseResponse(respBytes, e.issuer)
+	if err != nil {
+		return err
+	}
+	err = e.verifyResponse(resp)
+	if err != nil {
+		return err
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.response = respBytes
+	e.nextUpdate = resp.NextUpdate
+	e.thisUpdate = resp.ThisUpdate
+	e.lastSync = e.clk.Now()
+	return nil
+}
+
 func (e *Entry) updateResponse() error {
-	now := time.Now()
+	now := e.clk.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), e.timeout)
 	defer cancel()
 	resp, respBytes, eTag, maxAge, err := e.fetchResponse(ctx)
@@ -228,7 +292,7 @@ func (e *Entry) updateResponse() error {
 		e.mu.RUnlock()
 		e.mu.Lock()
 		defer e.mu.Unlock()
-		// return same response or got 304 header
+		// got same response or got 304 header
 		e.lastSync = now
 		return nil
 	}
@@ -245,34 +309,38 @@ func (e *Entry) updateResponse() error {
 	e.nextUpdate = resp.NextUpdate
 	e.thisUpdate = resp.ThisUpdate
 	e.lastSync = now
-	// write to file if we are going to do that
+	if e.responseFilename != "" {
+		err = e.writeToDisk()
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
 var instantly = time.Duration(0)
 
 func (e *Entry) timeToUpdate() *time.Duration {
-	now := time.Now()
+	now := e.clk.Now()
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	// no response or nextUpdate is in the past
 	if e.response == nil || e.nextUpdate.Before(now) {
 		return &instantly
 	}
-	// cache max age has expired
 	if e.maxAge > 0 {
+		// cache max age has expired
 		if e.lastSync.Add(e.maxAge).Before(now) {
 			return &instantly
 		}
 	}
-	// check if we are in the first half of the window
-	firstHalf := e.nextUpdate.Sub(e.thisUpdate) / 2
-	if e.nextPublish.Add(firstHalf).After(now) {
-		// wait until the object expires
+
+	half := e.nextUpdate.Sub(e.thisUpdate) / 2
+	halfWay := e.thisUpdate.Add(half)
+	if halfWay.After(now) {
 		return nil
 	}
-
-	updateTime := e.thisUpdate.Add(time.Second * time.Duration(mrand.Intn(int(firstHalf))))
+	updateTime := halfWay.Add(time.Second * time.Duration(mrand.Intn(int(half.Seconds()))))
 	if updateTime.Before(now) {
 		return &instantly
 	}
@@ -284,10 +352,10 @@ func (e *Entry) monitor() {
 	ticker := time.NewTicker(e.monitorTick)
 	for range ticker.C {
 		if updateIn := e.timeToUpdate(); updateIn != nil {
-			time.Sleep(*updateIn)
+			e.clk.Sleep(*updateIn)
 			err := e.updateResponse()
 			if err != nil {
-				// log
+				e.log.Err("Failed to update entry: %s", err)
 			}
 		}
 	}

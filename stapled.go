@@ -4,18 +4,21 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+
+	"github.com/jmhodges/clock"
 )
 
 type stapled struct {
 	log                    *Logger
+	clk                    clock.Clock
 	c                      *cache
 	responder              *http.Server
 	dontDieOnStaleResponse bool
 }
 
-func New(log *Logger, httpAddr string, dontDieOnStale bool, entries []*Entry) (*stapled, error) {
+func New(log *Logger, clk clock.Clock, httpAddr string, dontDieOnStale bool, entries []*Entry) (*stapled, error) {
 	c := &cache{make(map[[32]byte]*Entry), make(map[[32]byte]*Entry), new(sync.RWMutex)}
-	s := &stapled{log: log, c: c, dontDieOnStaleResponse: dontDieOnStale}
+	s := &stapled{log: log, clk: clk, c: c, dontDieOnStaleResponse: dontDieOnStale}
 	// add entries to cache
 	for _, e := range entries {
 		c.add(e)

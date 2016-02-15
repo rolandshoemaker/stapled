@@ -13,6 +13,7 @@ import (
 
 	"github.com/rolandshoemaker/stapled"
 
+	"github.com/jmhodges/clock"
 	"gopkg.in/yaml.v2"
 )
 
@@ -31,7 +32,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger := stapled.NewLogger(config.Syslog.Network, config.Syslog.Addr, config.Syslog.Level)
+	clk := clock.Default()
+	logger := stapled.NewLogger(config.Syslog.Network, config.Syslog.Addr, config.Syslog.StdoutLevel, clk)
 
 	baseBackoff := time.Second * time.Duration(10)
 	timeout := time.Second * time.Duration(10)
@@ -54,15 +56,19 @@ func main() {
 
 	entries := []*stapled.Entry{}
 	for _, def := range config.Definitions.Certificates {
+		ed := stapled.EntryDefinition{
+			Log:         logger,
+			Clk:         clk,
+			Timeout:     timeout,
+			Backoff:     baseBackoff,
+			Serial:      big.NewInt(0),
+			CacheFolder: config.Disk.CacheFolder,
+		}
 		if def.Certificate == "" && def.Serial == "" {
 			logger.Err("Either 'certificate' or 'serial' are required")
 			os.Exit(1)
 		}
 		var cert *x509.Certificate
-
-		var issuer *x509.Certificate
-		responders := []string{}
-		serial := big.NewInt(0)
 
 		if def.Serial != "" {
 			serialBytes, err := hex.DecodeString(def.Serial)
@@ -70,7 +76,7 @@ func main() {
 				logger.Err("Failed to decode serial '%s': %s", def.Serial, err)
 				os.Exit(1)
 			}
-			serial = serial.SetBytes(serialBytes)
+			ed.Serial = ed.Serial.SetBytes(serialBytes)
 		} else {
 			certContents, err := ioutil.ReadFile(def.Certificate)
 			if err != nil {
@@ -82,8 +88,8 @@ func main() {
 				logger.Err("Failed to parse certificate '%s': %s", def.Certificate, err)
 				os.Exit(1)
 			}
-			serial = cert.SerialNumber
-			responders = cert.OCSPServer
+			ed.Serial = cert.SerialNumber
+			ed.Responders = cert.OCSPServer
 		}
 		if def.Issuer != "" {
 			issuerContents, err := ioutil.ReadFile(def.Issuer)
@@ -91,7 +97,7 @@ func main() {
 				logger.Err("Failed to read issuer '%s': %s", def.Issuer, err)
 				os.Exit(1)
 			}
-			issuer, err = stapled.ParseCertificate(issuerContents)
+			ed.Issuer, err = stapled.ParseCertificate(issuerContents)
 			if err != nil {
 				logger.Err("Failed to parse issuer '%s': %s", def.Issuer, err)
 				os.Exit(1)
@@ -114,7 +120,7 @@ func main() {
 					logger.Err("Failed to read issuer body from '%s': %s", issuerURL, err)
 					continue
 				}
-				issuer, err = stapled.ParseCertificate(body)
+				ed.Issuer, err = stapled.ParseCertificate(body)
 				if err != nil {
 					logger.Err("Failed to parse issuer body from '%s': %s", issuerURL, err)
 					continue
@@ -124,31 +130,30 @@ func main() {
 			logger.Err("issuer can only be ommited if the certificate contains AIA information about its issuer")
 			os.Exit(1)
 		}
-		if issuer == nil {
+		if ed.Issuer == nil {
 			logger.Err("Unable to retrieve issuer")
 			os.Exit(1)
 		}
 
 		if len(def.Responders) > 0 {
-			responders = def.Responders
+			ed.Responders = def.Responders
 		}
 		if len(config.Fetcher.UpstreamStapleds) > 0 && !def.OverrideUpstream {
-			responders = config.Fetcher.UpstreamStapleds
+			ed.Responders = config.Fetcher.UpstreamStapleds
 		}
-		if len(responders) == 0 {
+		if len(ed.Responders) == 0 {
 			logger.Err("No responders provided")
 			os.Exit(1)
 		}
-		var proxyFunc func(*http.Request) (*url.URL, error)
 		if config.Fetcher.Proxy != "" {
 			proxyURL, err := url.Parse(config.Fetcher.Proxy)
 			if err != nil {
 				logger.Err("Failed to parse proxy URL: %s", err)
 				os.Exit(1)
 			}
-			proxyFunc = http.ProxyURL(proxyURL)
+			ed.Proxy = http.ProxyURL(proxyURL)
 		}
-		entry, err := stapled.NewEntry(logger, nil, issuer, serial, responders, timeout, baseBackoff, proxyFunc)
+		entry, err := stapled.NewEntry(ed)
 		if err != nil {
 			logger.Err("Failed to create entry: %s", err)
 			os.Exit(1)
@@ -156,7 +161,7 @@ func main() {
 		entries = append(entries, entry)
 	}
 
-	s, err := stapled.New(logger, config.HTTP.Addr, config.DontDieOnStaleResponse, entries)
+	s, err := stapled.New(logger, clk, config.HTTP.Addr, config.DontDieOnStaleResponse, entries)
 	if err != nil {
 		logger.Err("Failed to initialize stapled: %s", err)
 		os.Exit(1)
