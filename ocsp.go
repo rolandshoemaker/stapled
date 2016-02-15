@@ -32,6 +32,7 @@ import (
 type Entry struct {
 	name        string
 	monitorTick time.Duration
+	log         *Logger
 
 	// cert related
 	serial *big.Int
@@ -56,7 +57,7 @@ type Entry struct {
 	mu *sync.RWMutex
 }
 
-func NewEntry(response []byte, issuer *x509.Certificate, serial *big.Int, responders []string, timeout, backoff time.Duration, proxy func(*http.Request) (*url.URL, error)) (*Entry, error) {
+func NewEntry(log *Logger, response []byte, issuer *x509.Certificate, serial *big.Int, responders []string, timeout, backoff time.Duration, proxy func(*http.Request) (*url.URL, error)) (*Entry, error) {
 	issuerNameHash := sha1.Sum(issuer.RawSubject)
 	var publicKeyInfo struct {
 		Algorithm pkix.AlgorithmIdentifier
@@ -92,6 +93,7 @@ func NewEntry(response []byte, issuer *x509.Certificate, serial *big.Int, respon
 		}
 	}
 	e := &Entry{
+		log:         log,
 		serial:      serial,
 		issuer:      issuer,
 		client:      client,
@@ -134,7 +136,6 @@ func (e *Entry) randomResponder() string {
 func (e *Entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, string, int, error) {
 	backoffSeconds := 0
 	for {
-		fmt.Println("hi")
 		select {
 		case <-ctx.Done():
 			return nil, nil, "", 0, ctx.Err()
@@ -143,11 +144,6 @@ func (e *Entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, stri
 		if backoffSeconds > 0 {
 			backoffSeconds = 0
 		}
-		fmt.Printf(
-			"%s/%s\n",
-			e.randomResponder(),
-			url.QueryEscape(base64.StdEncoding.EncodeToString(e.request)),
-		)
 		req, err := http.NewRequest(
 			"GET",
 			fmt.Sprintf(
@@ -163,16 +159,20 @@ func (e *Entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, stri
 		if e.eTag != "" {
 			req.Header.Set("If-None-Match", e.eTag)
 		}
+		e.log.Info("Sending request to '%s'", req.URL)
 		resp, err := e.client.Do(req)
 		if err != nil {
-			// log
-			fmt.Println("derp", err)
+			e.log.Err("Request for '%s' failed: %s", req.URL, err)
 			backoffSeconds = 10
 			continue
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != 200 {
-			fmt.Println("faillled")
+			if resp.StatusCode == 304 {
+				e.log.Info("Response for '%s' hasn't changed", req.URL)
+				return nil, nil, "", 0, nil
+			}
+			e.log.Err("Request for '%s' got a non-200 response: %d", req.URL, resp.StatusCode)
 			backoffSeconds = 10
 			if resp.StatusCode == 503 {
 				if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
@@ -181,22 +181,17 @@ func (e *Entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, stri
 					}
 				}
 			}
-			if resp.StatusCode == 304 {
-				return nil, nil, "", 0, nil
-			}
 			continue
 		}
 		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
-			// log
-			fmt.Println("wut", err)
+			e.log.Err("Failed to read response body from '%s': %s", req.URL, err)
 			backoffSeconds = 10
 			continue
 		}
 		ocspResp, err := ocsp.ParseResponse(body, e.issuer)
 		if err != nil {
-			// log
-			fmt.Println("UGH", err)
+			e.log.Err("Failed to parse response body from '%s': %s", req.URL, err)
 			backoffSeconds = 10
 			continue
 		}
@@ -209,7 +204,7 @@ func (e *Entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, stri
 					if strings.HasPrefix(p, "max-age=") {
 						maxAge, err = strconv.Atoi(p[8:])
 						if err != nil {
-							// log
+							e.log.Err("Failed to parse max-age parameter in response from '%s': %s", req.URL, err)
 						}
 					}
 				}

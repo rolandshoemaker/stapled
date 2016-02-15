@@ -18,6 +18,7 @@ import (
 // Adapted from https://github.com/cloudflare/cfssl/blob/master/ocsp/responder.go
 // to log + do stats etc the way we want.
 func (s *stapled) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
+	s.log.Info("[responder] Received request: %s %s %s", req.RemoteAddr, req.Method, req.URL)
 	// Read response from request
 	var requestBody []byte
 	var err error
@@ -25,7 +26,7 @@ func (s *stapled) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 	case "GET":
 		base64Request, err := url.QueryUnescape(req.URL.Path)
 		if err != nil {
-			// log.Errorf("Error decoding URL: %s", req.URL.Path)
+			s.log.Err("[responder] Error decoding URL: %s", req.URL.Path)
 			resp.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -41,14 +42,14 @@ func (s *stapled) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 		}
 		requestBody, err = base64.StdEncoding.DecodeString(string(base64RequestBytes))
 		if err != nil {
-			// log.Errorf("Error decoding base64 from URL: %s", base64Request)
+			s.log.Err("[responder] Error decoding base64 from URL: %s", base64Request)
 			resp.WriteHeader(http.StatusBadRequest)
 			return
 		}
 	case "POST":
 		requestBody, err = ioutil.ReadAll(req.Body)
 		if err != nil {
-			// log.Errorf("Problem reading body of POST: %s", err)
+			s.log.Err("[responder] Problem reading body of POST: %s", err)
 			resp.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -56,8 +57,7 @@ func (s *stapled) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 		resp.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	// b64Body := base64.StdEncoding.EncodeToString(requestBody)
-	// log.Infof("Received OCSP request: %s", b64Body)
+	b64Body := base64.StdEncoding.EncodeToString(requestBody)
 
 	// All responses after this point will be OCSP.
 	// We could check for the content type of the request, but that
@@ -70,17 +70,16 @@ func (s *stapled) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 	//      should return unauthorizedRequest instead of malformed.
 	ocspRequest, err := ocsp.ParseRequest(requestBody)
 	if err != nil {
-		// log.Errorf("Error decoding request body: %s", b64Body)
+		s.log.Err("[responder] Error decoding request body: %s", b64Body)
 		resp.WriteHeader(http.StatusBadRequest)
 		resp.Write(ocsp.MalformedRequestErrorResponse)
 		return
 	}
 
 	// Look up OCSP response from source
-	fmt.Println(ocspRequest)
 	entry, found := s.c.lookup(ocspRequest)
 	if !found {
-		// log.Errorf("No response found for request: %s", b64Body)
+		s.log.Err("[responder] No response found for request: %s", b64Body)
 		resp.Write(ocsp.UnauthorizedErrorResponse)
 		return
 	}
@@ -89,7 +88,7 @@ func (s *stapled) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 	now := time.Now()
 	if entry.nextUpdate.Before(now) && !s.dontDieOnStaleResponse {
 		panic(fmt.Sprintf(
-			"Was about to serve stale response for %s (%s past NextUpdate), dying instead",
+			"[responder] Was about to serve stale response for %s (%s past NextUpdate), dying instead",
 			entry.name,
 			now.Sub(entry.nextUpdate),
 		))

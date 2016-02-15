@@ -148,7 +148,7 @@ func main() {
 			}
 			proxyFunc = http.ProxyURL(proxyURL)
 		}
-		entry, err := stapled.NewEntry(nil, issuer, serial, responders, timeout, baseBackoff, proxyFunc)
+		entry, err := stapled.NewEntry(logger, nil, issuer, serial, responders, timeout, baseBackoff, proxyFunc)
 		if err != nil {
 			logger.Err("Failed to create entry: %s", err)
 			os.Exit(1)
@@ -161,6 +161,7 @@ func main() {
 		logger.Err("Failed to initialize stapled: %s", err)
 		os.Exit(1)
 	}
+
 	err = s.Run()
 	if err != nil {
 		logger.Err("stapled failed: %s", err)
