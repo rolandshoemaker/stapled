@@ -17,7 +17,7 @@ type stapled struct {
 }
 
 func New(log *Logger, clk clock.Clock, httpAddr string, dontDieOnStale bool, entries []*Entry) (*stapled, error) {
-	c := &cache{make(map[[32]byte]*Entry), make(map[[32]byte]*Entry), new(sync.RWMutex)}
+	c := &cache{log, make(map[[32]byte]*Entry), make(map[[32]byte]*Entry), new(sync.RWMutex)}
 	s := &stapled{log: log, clk: clk, c: c, dontDieOnStaleResponse: dontDieOnStale}
 	// add entries to cache
 	for _, e := range entries {

@@ -15,6 +15,7 @@ import (
 )
 
 type cache struct {
+	log       *Logger
 	entries   map[[32]byte]*Entry
 	lookupMap map[[32]byte]*Entry
 	mu        *sync.RWMutex
@@ -82,5 +83,6 @@ func (c *cache) add(e *Entry) error {
 	for _, h := range [][32]byte{sha1Hash, sha256Hash, sha384Hash, sha512Hash} {
 		c.lookupMap[h] = e
 	}
+	c.log.Info("[cache] Entry added")
 	return nil
 }

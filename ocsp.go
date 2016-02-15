@@ -6,7 +6,7 @@ package stapled
 import (
 	"bytes"
 	"crypto"
-	// "crypto/sha256"
+	"crypto/sha1"
 	"crypto/x509"
 	"encoding/base64"
 	"errors"
@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -104,25 +105,32 @@ func NewEntry(def EntryDefinition) (*Entry, error) {
 			TLSHandshakeTimeout: 10 * time.Second,
 		}
 	}
+	responseFilename := ""
+	if def.CacheFolder != "" {
+		responseFilename = path.Join(def.CacheFolder, fmt.Sprintf("%X.resp", sha1.Sum(request)))
+	}
 	e := &Entry{
-		log:         def.Log,
-		clk:         def.Clk,
-		serial:      def.Serial,
-		issuer:      def.Issuer,
-		client:      client,
-		request:     request,
-		responders:  def.Responders,
-		timeout:     def.Timeout,
-		baseBackoff: def.Backoff,
-		response:    def.Response,
-		mu:          new(sync.RWMutex),
-		lastSync:    def.Clk.Now(),
-		monitorTick: 1 * time.Minute,
+		log:              def.Log,
+		clk:              def.Clk,
+		serial:           def.Serial,
+		issuer:           def.Issuer,
+		client:           client,
+		request:          request,
+		responders:       def.Responders,
+		timeout:          def.Timeout,
+		baseBackoff:      def.Backoff,
+		response:         def.Response,
+		mu:               new(sync.RWMutex),
+		lastSync:         def.Clk.Now(),
+		monitorTick:      1 * time.Minute,
+		responseFilename: responseFilename,
 	}
 	if e.responseFilename != "" {
 		err = e.readFromDisk()
-		if err != nil {
+		if err != nil && !os.IsNotExist(err) {
 			return nil, err
+		} else if err == nil {
+			e.log.Info("[entry-init] Read valid response from %s", e.responseFilename)
 		}
 	}
 	if e.response == nil {
@@ -238,23 +246,12 @@ func (e *Entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, stri
 
 // writeToDisk assumes the caller holds a lock
 func (e *Entry) writeToDisk() error {
-	tmp, err := ioutil.TempFile(os.TempDir(), "stapled-response")
+	tmpName := fmt.Sprintf("%s.tmp", e.responseFilename)
+	err := ioutil.WriteFile(tmpName, e.response, os.ModePerm)
 	if err != nil {
 		return err
 	}
-	_, err = tmp.Write(e.response)
-	if err != nil {
-		return err
-	}
-	err = tmp.Sync()
-	if err != nil {
-		return err
-	}
-	err = tmp.Close()
-	if err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), e.responseFilename)
+	return os.Rename(tmpName, e.responseFilename)
 }
 
 func (e *Entry) readFromDisk() error {
@@ -280,6 +277,7 @@ func (e *Entry) readFromDisk() error {
 }
 
 func (e *Entry) updateResponse() error {
+	e.log.Info("[entry] Attempting to fetch new response")
 	now := e.clk.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), e.timeout)
 	defer cancel()
@@ -292,7 +290,8 @@ func (e *Entry) updateResponse() error {
 		e.mu.RUnlock()
 		e.mu.Lock()
 		defer e.mu.Unlock()
-		// got same response or got 304 header
+		// got same response or got 304 status code
+		e.log.Info("[entry] Response has not changed")
 		e.lastSync = now
 		return nil
 	}
@@ -314,7 +313,9 @@ func (e *Entry) updateResponse() error {
 		if err != nil {
 			return err
 		}
+		e.log.Info("[disk] Written fresh response to %s", e.responseFilename)
 	}
+	e.log.Info("[entry] Response updated")
 	return nil
 }
 
@@ -349,8 +350,7 @@ func (e *Entry) timeToUpdate() *time.Duration {
 }
 
 func (e *Entry) monitor() {
-	ticker := time.NewTicker(e.monitorTick)
-	for range ticker.C {
+	for {
 		if updateIn := e.timeToUpdate(); updateIn != nil {
 			e.clk.Sleep(*updateIn)
 			err := e.updateResponse()
@@ -358,5 +358,6 @@ func (e *Entry) monitor() {
 				e.log.Err("Failed to update entry: %s", err)
 			}
 		}
+		e.clk.Sleep(e.monitorTick)
 	}
 }
