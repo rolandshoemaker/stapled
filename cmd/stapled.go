@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"math/big"
 	"net/http"
+	"net/url"
 	"os"
 	"time"
 
@@ -134,7 +135,16 @@ func main() {
 			fmt.Println("no responders provided")
 			os.Exit(1)
 		}
-		entry, err := stapled.NewEntry(nil, issuer, serial, responders, timeout, baseBackoff)
+		var proxyFunc func(*http.Request) (*url.URL, error)
+		if config.Fetcher.Proxy != "" {
+			proxyURL, err := url.Parse(config.Fetcher.Proxy)
+			if err != nil {
+				fmt.Printf("Failed to parse proxy URL: %s\n", err)
+				os.Exit(1)
+			}
+			proxyFunc = http.ProxyURL(proxyURL)
+		}
+		entry, err := stapled.NewEntry(nil, issuer, serial, responders, timeout, baseBackoff, proxyFunc)
 		if err != nil {
 			fmt.Printf("Failed to create entry: %s\n", err)
 			os.Exit(1)

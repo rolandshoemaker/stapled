@@ -17,6 +17,7 @@ import (
 	"io/ioutil"
 	"math/big"
 	mrand "math/rand"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -55,7 +56,7 @@ type Entry struct {
 	mu *sync.RWMutex
 }
 
-func NewEntry(response []byte, issuer *x509.Certificate, serial *big.Int, responders []string, timeout, backoff time.Duration) (*Entry, error) {
+func NewEntry(response []byte, issuer *x509.Certificate, serial *big.Int, responders []string, timeout, backoff time.Duration, proxy func(*http.Request) (*url.URL, error)) (*Entry, error) {
 	issuerNameHash := sha1.Sum(issuer.RawSubject)
 	var publicKeyInfo struct {
 		Algorithm pkix.AlgorithmIdentifier
@@ -75,7 +76,21 @@ func NewEntry(response []byte, issuer *x509.Certificate, serial *big.Int, respon
 	if err != nil {
 		return nil, err
 	}
+	for i := range responders {
+		responders[i] = strings.TrimSuffix(responders[i], "/")
+	}
 	client := new(http.Client)
+	if proxy != nil {
+		// default transport + proxy
+		client.Transport = &http.Transport{
+			Proxy: proxy,
+			Dial: (&net.Dialer{
+				Timeout:   30 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).Dial,
+			TLSHandshakeTimeout: 10 * time.Second,
+		}
+	}
 	e := &Entry{
 		serial:      serial,
 		issuer:      issuer,
@@ -87,11 +102,13 @@ func NewEntry(response []byte, issuer *x509.Certificate, serial *big.Int, respon
 		response:    response,
 		mu:          new(sync.RWMutex),
 		lastSync:    time.Now(),
+		monitorTick: 30 * time.Minute,
 	}
 	err = e.updateResponse()
 	if err != nil {
 		return nil, err
 	}
+	go e.monitor()
 	return e, nil
 }
 
@@ -101,9 +118,6 @@ func (e *Entry) verifyResponse(resp *ocsp.Response) error {
 	}
 	if resp.ThisUpdate.After(resp.NextUpdate) {
 		return errors.New("Malformed OCSP response: NextUpdate is before ThisUpate")
-	}
-	if err := resp.CheckSignatureFrom(e.issuer); err != nil {
-		return err
 	}
 	if e.serial.Cmp(resp.SerialNumber) != 0 {
 		return errors.New("Malformed OCSP response: Serial numbers don't match")
@@ -244,13 +258,12 @@ var instantly = time.Duration(0)
 
 func (e *Entry) timeToUpdate() *time.Duration {
 	now := time.Now()
-	// no response or nextUpdate is in the past
 	e.mu.RLock()
+	defer e.mu.RUnlock()
+	// no response or nextUpdate is in the past
 	if e.response == nil || e.nextUpdate.Before(now) {
-		e.mu.RUnlock()
 		return &instantly
 	}
-	e.mu.RUnlock()
 	// cache max age has expired
 	if e.maxAge > 0 {
 		if e.lastSync.Add(e.maxAge).Before(now) {
