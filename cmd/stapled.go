@@ -77,7 +77,7 @@ func main() {
 				logger.Err("Failed to read certificate '%s': %s", def.Certificate, err)
 				os.Exit(1)
 			}
-			cert, err = x509.ParseCertificate(certContents)
+			cert, err = stapled.ParseCertificate(certContents)
 			if err != nil {
 				logger.Err("Failed to parse certificate '%s': %s", def.Certificate, err)
 				os.Exit(1)
@@ -91,7 +91,7 @@ func main() {
 				logger.Err("Failed to read issuer '%s': %s", def.Issuer, err)
 				os.Exit(1)
 			}
-			issuer, err = x509.ParseCertificate(issuerContents)
+			issuer, err = stapled.ParseCertificate(issuerContents)
 			if err != nil {
 				logger.Err("Failed to parse issuer '%s': %s", def.Issuer, err)
 				os.Exit(1)
@@ -114,7 +114,7 @@ func main() {
 					logger.Err("Failed to read issuer body from '%s': %s", issuerURL, err)
 					continue
 				}
-				issuer, err = x509.ParseCertificate(body)
+				issuer, err = stapled.ParseCertificate(body)
 				if err != nil {
 					logger.Err("Failed to parse issuer body from '%s': %s", issuerURL, err)
 					continue

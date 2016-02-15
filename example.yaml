@@ -2,7 +2,7 @@ definitions:
   # folder: certs/
   certificates:
     - certificate: test.der
-      issuer: issuer.der
+      # issuer: issuer.der
     - certificate: test-b.der
 
 fetcher:
