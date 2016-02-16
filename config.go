@@ -2,10 +2,14 @@ package stapled
 
 type CertDefinition struct {
 	Certificate      string
+	Name             string
 	Issuer           string
 	Serial           string
 	Responders       []string
+	UpstreamStapleds []string `yaml:"upstream-stapleds"`
+	Proxy            string
 	OverrideUpstream bool
+	OverrideProxy    bool
 }
 
 type FetcherConfig struct {

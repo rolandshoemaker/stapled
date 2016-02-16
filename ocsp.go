@@ -155,6 +155,7 @@ func (e *Entry) verifyResponse(resp *ocsp.Response) error {
 	}
 	// check signing cert is still valid? (this could
 	// probably also be taken care of somewhere else...)
+	e.log.Info("[entry] New response is valid")
 	return nil
 }
 

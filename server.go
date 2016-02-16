@@ -6,7 +6,6 @@ package stapled
 
 import (
 	"encoding/base64"
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -76,25 +75,15 @@ func (s *stapled) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 	}
 
 	// Look up OCSP response from source
-	entry, found := s.c.lookup(ocspRequest)
+	response, found := s.c.lookupResponse(ocspRequest)
 	if !found {
 		s.log.Err("[responder] No response found for request: %s", b64Body)
 		resp.Write(ocsp.UnauthorizedErrorResponse)
 		return
 	}
-	entry.mu.RLock()
-	defer entry.mu.RUnlock()
-	now := s.clk.Now()
-	if entry.nextUpdate.Before(now) && !s.dontDieOnStaleResponse {
-		panic(fmt.Sprintf(
-			"[responder] Was about to serve stale response for %s (%s past NextUpdate), dying instead",
-			entry.name,
-			now.Sub(entry.nextUpdate),
-		))
-	}
 
 	resp.WriteHeader(http.StatusOK)
-	resp.Write(entry.response)
+	resp.Write(response)
 }
 
 func (s *stapled) initResponder(httpAddr string) {

@@ -28,10 +28,6 @@ each of the four possible hashing algorithms).
                      +-+sha512+----+sha256-----+2a760e8616b0d8191efd1f5a7441d554...+-+
 
 
-
-
-
-
     Lookup
     ------
 
@@ -56,12 +52,75 @@ bellow).
 
 ### Choosing when to refresh
 
+After a entry is added to the cache it is checked using the
+algorithm outlined below at a configurable interval to decide
+whether a upstream source should be contacted to check for a new
+response.
+
+> (Largely based on Microsoft's [CryptoAPI Pre-Fetching behaviour](https://technet.microsoft.com/en-us/library/ee619723(v=ws.10).aspx))
+
+Variables:
+* `LastSync` - last time response was fetched
+* `ThisUpdate`
+* `NextUpdate`
+* (if available) `NextPublish` - optional OCSP extension
+* (if available) `max-age` - cache property
+
+1. If now is after `NextUpdate` immediately refresh response
+2. If `max-age` is more than zero and now is after `LastSync + max-age`
+   immediately refresh response
+3. If now is after `(NextUodate - ThisUpdate) / 4`, or `NextPublish`,
+   randomly select a a time between
+   `ThisUpdate + ((NextUodate - ThisUpdate) / 4)`, or `NextPublish`,
+   and `NextUpdate`
+   1. If the time is before now immediately refresh the response
+   2. If the time is after now wait until then then refresh the response 
+
+## Interaction
+
+```
+
+                  +-----------+
+                  |   OCSP    |
+                  | responder |
+                  +-----+-----+
+                        |
+                        |
+                        |
+ +--------+        +----+----+      +-------+
+ | Apache +--http--+ stapled +--fs--+ nginx |
+ +--------+        +---------+      +-------+
+
+```
+
+### HTTP responder
+
+`stapled` acts as a RFC 2560 compliant OCSP responder which
+reads responses from the cache. The Issuer name and public
+key hashes and serial are extracted from requests and hashed
+to use as the key in the lookup table.
+
+### On-Disk cache
+
+If `cache-folder` is set the in-memory cache will be mirrored
+on disk (one-way). These responses can also be used to seed
+the cache on initial start-up.
+
+When a entry in the cache is updated and the response changes
+it will be written to a temporary file next to the existing
+response file and then renamed to overwrite it. This should
+be *atomic-ish* on most operating systems.
+
+1. Write `example.ocsp.tmp`
+2. Rename `example.ocsp.tmp` to `example.ocsp`
+
 ## Proxying / Distributed
 
-`stapled` is easily proxyable and acts as a RFC compliant
-OCSP responder allowing instances to speak to upstream
-instances instead of fetching OCSP requests directly itself
-if wanted.
+Since `stapled` acts as both a OCSP client and responder it can be
+easily chained simply by specifying another instance as the upstream
+responder for a cache entry. Thanks to support in `net/http` `stapled`
+can also easily proxy connections to upstream responders, or other
+instances.
 
 ```
 
@@ -80,8 +139,8 @@ if wanted.
                            |     |                 |
                            |     +-----------------+
                            |     |
-       +--------+        +-+-----+-+      +-------+
-       | Apache +--http--+ stapled +--fs--+ nginx |
-       +--------+        +---------+      +-------+
+                         +-+-----+-+
+                         | stapled |
+                         +---------+
 
 ```

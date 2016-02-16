@@ -61,8 +61,7 @@ func (c *cache) lookupResponse(request *ocsp.Request) ([]byte, bool) {
 	if present {
 		e.mu.RLock()
 		defer e.mu.RUnlock()
-		resp := e.response
-		return resp, present
+		return e.response, present
 	}
 	return nil, present
 }
