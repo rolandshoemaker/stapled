@@ -57,7 +57,7 @@ algorithm outlined below at a configurable interval to decide
 whether a upstream source should be contacted to check for a new
 response.
 
-> (Largely based on Microsoft's [CryptoAPI Pre-Fetching behaviour](https://technet.microsoft.com/en-us/library/ee619723(v=ws.10).aspx))
+> Largely based on Microsoft's [CryptoAPI Pre-Fetching behaviour](https://technet.microsoft.com/en-us/library/ee619723(v=ws.10).aspx)
 
 Variables:
 * `LastSync` - last time response was fetched
@@ -69,12 +69,10 @@ Variables:
 1. If now is after `NextUpdate` immediately refresh response
 2. If `max-age` is more than zero and now is after `LastSync + max-age`
    immediately refresh response
-3. If now is after `(NextUodate - ThisUpdate) / 4`, or `NextPublish`,
-   randomly select a a time between
-   `ThisUpdate + ((NextUodate - ThisUpdate) / 4)`, or `NextPublish`,
-   and `NextUpdate`
+3. If now is after `(NextUpdate - ThisUpdate) / 4`, or `NextPublish`,
+   randomly select a a time between then and `NextUpdate`
    1. If the time is before now immediately refresh the response
-   2. If the time is after now wait until then then refresh the response 
+   2. If the time is after now wait until then to refresh the response 
 
 ## Interaction
 
@@ -114,7 +112,7 @@ be *atomic-ish* on most operating systems.
 1. Write `example.ocsp.tmp`
 2. Rename `example.ocsp.tmp` to `example.ocsp`
 
-## Proxying / Distributed
+## Proxying / Distribution
 
 Since `stapled` acts as both a OCSP client and responder it can be
 easily chained simply by specifying another instance as the upstream

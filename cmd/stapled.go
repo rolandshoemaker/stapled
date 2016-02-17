@@ -57,6 +57,7 @@ func main() {
 	entries := []*stapled.Entry{}
 	for _, def := range config.Definitions.Certificates {
 		ed := stapled.EntryDefinition{
+			Name:        def.Certificate,
 			Log:         logger,
 			Clk:         clk,
 			Timeout:     timeout,
@@ -64,13 +65,15 @@ func main() {
 			Serial:      big.NewInt(0),
 			CacheFolder: config.Disk.CacheFolder,
 		}
-		if def.Certificate == "" && def.Serial == "" {
-			logger.Err("Either 'certificate' or 'serial' are required")
+		if def.Certificate == "" && (def.Serial == "" || def.Name == "") {
+			logger.Err("Either 'certificate' or 'name' and 'serial' are required")
 			os.Exit(1)
 		}
 		var cert *x509.Certificate
 
+		// this whole thing is... horrific
 		if def.Serial != "" {
+			ed.Name = def.Name
 			serialBytes, err := hex.DecodeString(def.Serial)
 			if err != nil {
 				logger.Err("Failed to decode serial '%s': %s", def.Serial, err)

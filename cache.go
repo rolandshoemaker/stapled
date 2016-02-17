@@ -7,6 +7,7 @@ package stapled
 import (
 	"crypto"
 	"crypto/sha256"
+	"fmt"
 	"hash"
 	"math/big"
 	"sync"
@@ -16,7 +17,7 @@ import (
 
 type cache struct {
 	log       *Logger
-	entries   map[[32]byte]*Entry
+	entries   map[string]*Entry
 	lookupMap map[[32]byte]*Entry
 	mu        *sync.RWMutex
 }
@@ -30,16 +31,16 @@ func hashEntry(h hash.Hash, name, pkiBytes []byte, serial *big.Int) ([32]byte, e
 	return sha256.Sum256(append(append(issuerNameHash, issuerKeyHash...), serialHash[:]...)), nil
 }
 
-func allHashes(e *Entry) ([32]byte, [32]byte, [32]byte, [32]byte, error) {
+func allHashes(e *Entry) ([][32]byte, error) {
 	results := [][32]byte{}
 	for _, h := range []crypto.Hash{crypto.SHA1, crypto.SHA256, crypto.SHA384, crypto.SHA512} {
 		hashed, err := hashEntry(h.New(), e.issuer.RawSubject, e.issuer.RawSubjectPublicKeyInfo, e.serial)
 		if err != nil {
-			return [32]byte{}, [32]byte{}, [32]byte{}, [32]byte{}, err
+			return nil, err
 		}
 		results = append(results, hashed)
 	}
-	return results[0], results[1], results[2], results[3], nil
+	return results, nil
 }
 
 func hashRequest(request ocsp.Request) [32]byte {
@@ -69,20 +70,40 @@ func (c *cache) lookupResponse(request *ocsp.Request) ([]byte, bool) {
 // this cache structure seems kind of gross but... idk i think it's prob
 // best for now (until I can think of something better :/)
 func (c *cache) add(e *Entry) error {
-	sha1Hash, sha256Hash, sha384Hash, sha512Hash, err := allHashes(e)
+	hashes, err := allHashes(e)
 	if err != nil {
 		return err
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if _, present := c.entries[sha256Hash]; present {
-		// log overwriting or fail...?
-		c.log.Info("[cache] Overwritting cache entry")
+	if _, present := c.entries[e.name]; present {
+		// log or fail...?
+		c.log.Warning("[cache] Overwriting cache entry")
 	}
-	c.entries[sha256Hash] = e
-	for _, h := range [][32]byte{sha1Hash, sha256Hash, sha384Hash, sha512Hash} {
+	c.entries[e.name] = e
+	for _, h := range hashes {
 		c.lookupMap[h] = e
 	}
-	c.log.Info("[cache] Entry added")
+	c.log.Info("[cache] New entry for '%s' added", e.name)
+	return nil
+}
+
+func (c *cache) remove(name string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, present := c.entries[name]
+	if !present {
+		return fmt.Errorf("Entry '%s' is not in the cache", name)
+	}
+	e.mu.Lock()
+	delete(c.entries, name)
+	hashes, err := allHashes(e)
+	if err != nil {
+		return err
+	}
+	for _, h := range hashes {
+		delete(c.lookupMap, h)
+	}
+	c.log.Info("[cache] Removed entry for '%s' from cache", name)
 	return nil
 }

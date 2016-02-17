@@ -6,7 +6,6 @@ package stapled
 import (
 	"bytes"
 	"crypto"
-	"crypto/sha1"
 	"crypto/x509"
 	"encoding/base64"
 	"errors"
@@ -19,6 +18,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -61,6 +61,7 @@ type Entry struct {
 type EntryDefinition struct {
 	Log         *Logger
 	Clk         clock.Clock
+	Name        string
 	CacheFolder string
 	Response    []byte
 	Issuer      *x509.Certificate
@@ -107,9 +108,19 @@ func NewEntry(def EntryDefinition) (*Entry, error) {
 	}
 	responseFilename := ""
 	if def.CacheFolder != "" {
-		responseFilename = path.Join(def.CacheFolder, fmt.Sprintf("%X.resp", sha1.Sum(request)))
+		responseFilename = path.Join(
+			def.CacheFolder,
+			fmt.Sprintf(
+				"%s.resp",
+				strings.TrimSuffix(
+					filepath.Base(def.Name),
+					filepath.Ext(def.Name),
+				),
+			),
+		)
 	}
 	e := &Entry{
+		name:             def.Name,
 		log:              def.Log,
 		clk:              def.Clk,
 		serial:           def.Serial,
@@ -129,8 +140,6 @@ func NewEntry(def EntryDefinition) (*Entry, error) {
 		err = e.readFromDisk()
 		if err != nil && !os.IsNotExist(err) {
 			return nil, err
-		} else if err == nil {
-			e.log.Info("[entry-init] Read valid response from %s", e.responseFilename)
 		}
 	}
 	if e.response == nil {
@@ -141,6 +150,14 @@ func NewEntry(def EntryDefinition) (*Entry, error) {
 	}
 	go e.monitor()
 	return e, nil
+}
+
+func (e *Entry) info(msg string, args ...interface{}) {
+	e.log.Info(fmt.Sprintf("[entry:%s] %s", e.name, msg), args...)
+}
+
+func (e *Entry) err(msg string, args ...interface{}) {
+	e.log.Err(fmt.Sprintf("[entry:%s] %s", e.name, msg), args...)
 }
 
 func (e *Entry) verifyResponse(resp *ocsp.Response) error {
@@ -155,7 +172,7 @@ func (e *Entry) verifyResponse(resp *ocsp.Response) error {
 	}
 	// check signing cert is still valid? (this could
 	// probably also be taken care of somewhere else...)
-	e.log.Info("[entry] New response is valid")
+	e.info("New response is valid")
 	return nil
 }
 
@@ -166,6 +183,9 @@ func (e *Entry) randomResponder() string {
 func (e *Entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, string, int, error) {
 	backoffSeconds := 0
 	for {
+		if backoffSeconds > 0 {
+			e.info("Request failed, backing off for %d seconds", backoffSeconds)
+		}
 		select {
 		case <-ctx.Done():
 			return nil, nil, "", 0, ctx.Err()
@@ -189,20 +209,20 @@ func (e *Entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, stri
 		if e.eTag != "" {
 			req.Header.Set("If-None-Match", e.eTag)
 		}
-		e.log.Info("[fetcher] Sending request to '%s'", req.URL)
+		e.info("Sending request to '%s'", req.URL)
 		resp, err := e.client.Do(req)
 		if err != nil {
-			e.log.Err("[fetcher] Request for '%s' failed: %s", req.URL, err)
+			e.err("Request for '%s' failed: %s", req.URL, err)
 			backoffSeconds = 10
 			continue
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != 200 {
 			if resp.StatusCode == 304 {
-				e.log.Info("[fetcher] Response for '%s' hasn't changed", req.URL)
+				e.info("Response for '%s' hasn't changed", req.URL)
 				return nil, nil, "", 0, nil
 			}
-			e.log.Err("[fetcher] Request for '%s' got a non-200 response: %d", req.URL, resp.StatusCode)
+			e.err("Request for '%s' got a non-200 response: %d", req.URL, resp.StatusCode)
 			backoffSeconds = 10
 			if resp.StatusCode == 503 {
 				if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
@@ -215,13 +235,13 @@ func (e *Entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, stri
 		}
 		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
-			e.log.Err("[fetcher] Failed to read response body from '%s': %s", req.URL, err)
+			e.err("Failed to read response body from '%s': %s", req.URL, err)
 			backoffSeconds = 10
 			continue
 		}
 		ocspResp, err := ocsp.ParseResponse(body, e.issuer)
 		if err != nil {
-			e.log.Err("[fetcher] Failed to parse response body from '%s': %s", req.URL, err)
+			e.err("Failed to parse response body from '%s': %s", req.URL, err)
 			backoffSeconds = 10
 			continue
 		}
@@ -234,7 +254,7 @@ func (e *Entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, stri
 					if strings.HasPrefix(p, "max-age=") {
 						maxAge, err = strconv.Atoi(p[8:])
 						if err != nil {
-							e.log.Err("[fetcher] Failed to parse max-age parameter in response from '%s': %s", req.URL, err)
+							e.err("Failed to parse max-age parameter in response from '%s': %s", req.URL, err)
 						}
 					}
 				}
@@ -247,15 +267,22 @@ func (e *Entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, stri
 
 // writeToDisk assumes the caller holds a lock
 func (e *Entry) writeToDisk() error {
+	e.info("Writing response to %s", e.responseFilename)
 	tmpName := fmt.Sprintf("%s.tmp", e.responseFilename)
 	err := ioutil.WriteFile(tmpName, e.response, os.ModePerm)
 	if err != nil {
 		return err
 	}
-	return os.Rename(tmpName, e.responseFilename)
+	err = os.Rename(tmpName, e.responseFilename)
+	if err != nil {
+		return err
+	}
+	e.info("Response successfully written to %s", e.responseFilename)
+	return nil
 }
 
 func (e *Entry) readFromDisk() error {
+	e.info("Reading response from %s", e.responseFilename)
 	respBytes, err := ioutil.ReadFile(e.responseFilename)
 	if err != nil {
 		return err
@@ -274,11 +301,12 @@ func (e *Entry) readFromDisk() error {
 	e.nextUpdate = resp.NextUpdate
 	e.thisUpdate = resp.ThisUpdate
 	e.lastSync = e.clk.Now()
+	e.info("Read valid response from %s", e.responseFilename)
 	return nil
 }
 
 func (e *Entry) updateResponse() error {
-	e.log.Info("[entry] Attempting to fetch new response")
+	e.info("Attempting to update response")
 	now := e.clk.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), e.timeout)
 	defer cancel()
@@ -292,7 +320,7 @@ func (e *Entry) updateResponse() error {
 		e.mu.Lock()
 		defer e.mu.Unlock()
 		// got same response or got 304 status code
-		e.log.Info("[entry] Response has not changed")
+		e.info("Response has not changed")
 		e.lastSync = now
 		return nil
 	}
@@ -314,9 +342,8 @@ func (e *Entry) updateResponse() error {
 		if err != nil {
 			return err
 		}
-		e.log.Info("[disk] Written fresh response to %s", e.responseFilename)
 	}
-	e.log.Info("[entry] Response updated")
+	e.info("Response updated")
 	return nil
 }
 
@@ -328,11 +355,13 @@ func (e *Entry) timeToUpdate() *time.Duration {
 	defer e.mu.RUnlock()
 	// no response or nextUpdate is in the past
 	if e.response == nil || e.nextUpdate.Before(now) {
+		e.info("Stale response, updating immediately")
 		return &instantly
 	}
 	if e.maxAge > 0 {
 		// cache max age has expired
 		if e.lastSync.Add(e.maxAge).Before(now) {
+			e.info("max-age has expired, updating immediately")
 			return &instantly
 		}
 	}
@@ -344,9 +373,11 @@ func (e *Entry) timeToUpdate() *time.Duration {
 	}
 	updateTime := halfWay.Add(time.Second * time.Duration(mrand.Intn(int(half.Seconds()))))
 	if updateTime.Before(now) {
+		e.info("Update time was in the past, updating immediately")
 		return &instantly
 	}
 	updateIn := updateTime.Sub(now)
+	e.info("Updating response in %s", updateIn)
 	return &updateIn
 }
 
@@ -356,7 +387,7 @@ func (e *Entry) monitor() {
 			e.clk.Sleep(*updateIn)
 			err := e.updateResponse()
 			if err != nil {
-				e.log.Err("Failed to update entry: %s", err)
+				e.err("Failed to update entry: %s", err)
 			}
 		}
 		e.clk.Sleep(e.monitorTick)
