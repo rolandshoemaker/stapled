@@ -1,13 +1,8 @@
 package main
 
 import (
-	"crypto/x509"
-	"encoding/hex"
 	"fmt"
 	"io/ioutil"
-	"math/big"
-	"net/http"
-	"net/url"
 	"os"
 	"time"
 
@@ -54,107 +49,21 @@ func main() {
 		timeout = time.Second * time.Duration(timeoutSeconds)
 	}
 
+	logger.Info("Loading definitions")
 	entries := []*stapled.Entry{}
 	for _, def := range config.Definitions.Certificates {
-		ed := stapled.EntryDefinition{
-			Name:        def.Certificate,
-			Log:         logger,
-			Clk:         clk,
-			Timeout:     timeout,
-			Backoff:     baseBackoff,
-			Serial:      big.NewInt(0),
-			CacheFolder: config.Disk.CacheFolder,
-		}
-		if def.Certificate == "" && (def.Serial == "" || def.Name == "") {
-			logger.Err("Either 'certificate' or 'name' and 'serial' are required")
+		ed, err := stapled.CertDefToEntryDef(logger,
+			clk,
+			timeout,
+			baseBackoff,
+			config.Disk.CacheFolder,
+			config.Fetcher.UpstreamStapleds,
+			config.Fetcher.Proxy,
+			def,
+		)
+		if err != nil {
+			logger.Err("Failed to parse definition: %s", err)
 			os.Exit(1)
-		}
-		var cert *x509.Certificate
-
-		// this whole thing is... horrific
-		if def.Serial != "" {
-			ed.Name = def.Name
-			serialBytes, err := hex.DecodeString(def.Serial)
-			if err != nil {
-				logger.Err("Failed to decode serial '%s': %s", def.Serial, err)
-				os.Exit(1)
-			}
-			ed.Serial = ed.Serial.SetBytes(serialBytes)
-		} else {
-			certContents, err := ioutil.ReadFile(def.Certificate)
-			if err != nil {
-				logger.Err("Failed to read certificate '%s': %s", def.Certificate, err)
-				os.Exit(1)
-			}
-			cert, err = stapled.ParseCertificate(certContents)
-			if err != nil {
-				logger.Err("Failed to parse certificate '%s': %s", def.Certificate, err)
-				os.Exit(1)
-			}
-			ed.Serial = cert.SerialNumber
-			ed.Responders = cert.OCSPServer
-		}
-		if def.Issuer != "" {
-			issuerContents, err := ioutil.ReadFile(def.Issuer)
-			if err != nil {
-				logger.Err("Failed to read issuer '%s': %s", def.Issuer, err)
-				os.Exit(1)
-			}
-			ed.Issuer, err = stapled.ParseCertificate(issuerContents)
-			if err != nil {
-				logger.Err("Failed to parse issuer '%s': %s", def.Issuer, err)
-				os.Exit(1)
-			}
-		} else if cert != nil {
-			if len(cert.IssuingCertificateURL) == 0 {
-				logger.Err("issuer can only be ommited if the certificate contains AIA information about its issuer")
-				os.Exit(1)
-			}
-			for _, issuerURL := range cert.IssuingCertificateURL {
-				// this should be its own function
-				resp, err := http.Get(issuerURL)
-				if err != nil {
-					logger.Err("Failed to retrieve issuer from '%s': %s", issuerURL, err)
-					continue
-				}
-				defer resp.Body.Close()
-				body, err := ioutil.ReadAll(resp.Body)
-				if err != nil {
-					logger.Err("Failed to read issuer body from '%s': %s", issuerURL, err)
-					continue
-				}
-				ed.Issuer, err = stapled.ParseCertificate(body)
-				if err != nil {
-					logger.Err("Failed to parse issuer body from '%s': %s", issuerURL, err)
-					continue
-				}
-			}
-		} else {
-			logger.Err("issuer can only be ommited if the certificate contains AIA information about its issuer")
-			os.Exit(1)
-		}
-		if ed.Issuer == nil {
-			logger.Err("Unable to retrieve issuer")
-			os.Exit(1)
-		}
-
-		if len(def.Responders) > 0 {
-			ed.Responders = def.Responders
-		}
-		if len(config.Fetcher.UpstreamStapleds) > 0 && !def.OverrideUpstream {
-			ed.Responders = config.Fetcher.UpstreamStapleds
-		}
-		if len(ed.Responders) == 0 {
-			logger.Err("No responders provided")
-			os.Exit(1)
-		}
-		if config.Fetcher.Proxy != "" {
-			proxyURL, err := url.Parse(config.Fetcher.Proxy)
-			if err != nil {
-				logger.Err("Failed to parse proxy URL: %s", err)
-				os.Exit(1)
-			}
-			ed.Proxy = http.ProxyURL(proxyURL)
 		}
 		entry, err := stapled.NewEntry(ed)
 		if err != nil {
@@ -164,12 +73,14 @@ func main() {
 		entries = append(entries, entry)
 	}
 
+	logger.Info("Initializing stapled")
 	s, err := stapled.New(logger, clk, config.HTTP.Addr, config.DontDieOnStaleResponse, entries)
 	if err != nil {
 		logger.Err("Failed to initialize stapled: %s", err)
 		os.Exit(1)
 	}
 
+	logger.Info("Running stapled")
 	err = s.Run()
 	if err != nil {
 		logger.Err("stapled failed: %s", err)

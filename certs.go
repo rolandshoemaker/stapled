@@ -7,6 +7,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"hash"
+	"io/ioutil"
 )
 
 // ParseCertificate parses a certificate from either it's PEM
@@ -23,6 +24,14 @@ func ParseCertificate(contents []byte) (*x509.Certificate, error) {
 		certBytes = block.Bytes
 	}
 	return x509.ParseCertificate(certBytes)
+}
+
+func ReadCertificate(filename string) (*x509.Certificate, error) {
+	contents, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCertificate(contents)
 }
 
 func HashNameAndPKI(h hash.Hash, name, pki []byte) ([]byte, []byte, error) {

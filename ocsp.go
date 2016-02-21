@@ -29,6 +29,15 @@ import (
 	"golang.org/x/net/context"
 )
 
+var statusToString = map[int]string{
+	0: "Success",
+	1: "Malformed",
+	2: "InternalError",
+	3: "TryLater",
+	5: "SignatureRequired",
+	6: "Unauthorized",
+}
+
 type Entry struct {
 	name        string
 	monitorTick time.Duration
@@ -72,7 +81,7 @@ type EntryDefinition struct {
 	Proxy       func(*http.Request) (*url.URL, error)
 }
 
-func NewEntry(def EntryDefinition) (*Entry, error) {
+func NewEntry(def *EntryDefinition) (*Entry, error) {
 	issuerNameHash, issuerKeyHash, err := HashNameAndPKI(
 		crypto.SHA1.New(),
 		def.Issuer.RawSubject,
@@ -180,6 +189,17 @@ func (e *Entry) randomResponder() string {
 	return e.responders[mrand.Intn(len(e.responders))]
 }
 
+func parseCacheControl(h string) int {
+	maxAge := 0
+	h = strings.Replace(h, " ", "", -1)
+	for _, p := range strings.Split(h, ",") {
+		if strings.HasPrefix(p, "max-age=") {
+			maxAge, _ = strconv.Atoi(p[8:])
+		}
+	}
+	return maxAge
+}
+
 func (e *Entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, string, int, error) {
 	backoffSeconds := 0
 	for {
@@ -220,7 +240,8 @@ func (e *Entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, stri
 		if resp.StatusCode != 200 {
 			if resp.StatusCode == 304 {
 				e.info("Response for '%s' hasn't changed", req.URL)
-				return nil, nil, "", 0, nil
+				eTag, cacheControl := resp.Header.Get("ETag"), parseCacheControl(resp.Header.Get("Cache-Control"))
+				return nil, nil, eTag, cacheControl, nil
 			}
 			e.err("Request for '%s' got a non-200 response: %d", req.URL, resp.StatusCode)
 			backoffSeconds = 10
@@ -246,21 +267,10 @@ func (e *Entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, stri
 			continue
 		}
 		if ocspResp.Status == int(ocsp.Success) {
-			maxAge := 0
-			eTag, cacheControl := resp.Header.Get("ETag"), resp.Header.Get("Cache-Control")
-			if cacheControl != "" {
-				cacheControl = strings.Replace(cacheControl, " ", "", -1)
-				for _, p := range strings.Split(cacheControl, ",") {
-					if strings.HasPrefix(p, "max-age=") {
-						maxAge, err = strconv.Atoi(p[8:])
-						if err != nil {
-							e.err("Failed to parse max-age parameter in response from '%s': %s", req.URL, err)
-						}
-					}
-				}
-			}
-			return ocspResp, body, eTag, maxAge, nil
+			eTag, cacheControl := resp.Header.Get("ETag"), parseCacheControl(resp.Header.Get("Cache-Control"))
+			return ocspResp, body, eTag, cacheControl, nil
 		}
+		e.err("Request for '%s' got a invalid OCSP response status: %s", req.URL, statusToString[ocspResp.Status])
 		backoffSeconds = 10
 	}
 }
@@ -301,7 +311,6 @@ func (e *Entry) readFromDisk() error {
 	e.nextUpdate = resp.NextUpdate
 	e.thisUpdate = resp.ThisUpdate
 	e.lastSync = e.clk.Now()
-	e.info("Read valid response from %s", e.responseFilename)
 	return nil
 }
 

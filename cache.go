@@ -43,14 +43,13 @@ func allHashes(e *Entry) ([][32]byte, error) {
 	return results, nil
 }
 
-func hashRequest(request ocsp.Request) [32]byte {
+func hashRequest(request *ocsp.Request) [32]byte {
 	serialHash := sha256.Sum256(request.SerialNumber.Bytes())
 	return sha256.Sum256(append(append(request.IssuerNameHash, request.IssuerKeyHash...), serialHash[:]...))
 }
 
 func (c *cache) lookup(request *ocsp.Request) (*Entry, bool) {
-	serialHash := sha256.Sum256(request.SerialNumber.Bytes())
-	hash := sha256.Sum256(append(append(request.IssuerNameHash, request.IssuerKeyHash...), serialHash[:]...))
+	hash := hashRequest(request)
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	e, present := c.lookupMap[hash]
