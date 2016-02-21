@@ -152,7 +152,7 @@ func NewEntry(def *EntryDefinition) (*Entry, error) {
 		}
 	}
 	if e.response == nil {
-		err = e.updateResponse()
+		err = e.refreshResponse()
 		if err != nil {
 			return nil, err
 		}
@@ -277,7 +277,6 @@ func (e *Entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, stri
 
 // writeToDisk assumes the caller holds a lock
 func (e *Entry) writeToDisk() error {
-	e.info("Writing response to %s", e.responseFilename)
 	tmpName := fmt.Sprintf("%s.tmp", e.responseFilename)
 	err := ioutil.WriteFile(tmpName, e.response, os.ModePerm)
 	if err != nil {
@@ -287,16 +286,16 @@ func (e *Entry) writeToDisk() error {
 	if err != nil {
 		return err
 	}
-	e.info("Response successfully written to %s", e.responseFilename)
+	e.info("Written new response to %s", e.responseFilename)
 	return nil
 }
 
 func (e *Entry) readFromDisk() error {
-	e.info("Reading response from %s", e.responseFilename)
 	respBytes, err := ioutil.ReadFile(e.responseFilename)
 	if err != nil {
 		return err
 	}
+	e.info("Read response from %s", e.responseFilename)
 	resp, err := ocsp.ParseResponse(respBytes, e.issuer)
 	if err != nil {
 		return err
@@ -305,39 +304,11 @@ func (e *Entry) readFromDisk() error {
 	if err != nil {
 		return err
 	}
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.response = respBytes
-	e.nextUpdate = resp.NextUpdate
-	e.thisUpdate = resp.ThisUpdate
-	e.lastSync = e.clk.Now()
+	e.updateResponse("", 0, resp, respBytes)
 	return nil
 }
 
-func (e *Entry) updateResponse() error {
-	e.info("Attempting to update response")
-	now := e.clk.Now()
-	ctx, cancel := context.WithTimeout(context.Background(), e.timeout)
-	defer cancel()
-	resp, respBytes, eTag, maxAge, err := e.fetchResponse(ctx)
-	if err != nil {
-		return err
-	}
-	e.mu.RLock()
-	if respBytes == nil || bytes.Compare(respBytes, e.response) == 0 {
-		e.mu.RUnlock()
-		e.mu.Lock()
-		defer e.mu.Unlock()
-		// got same response or got 304 status code
-		e.info("Response has not changed")
-		e.lastSync = now
-		return nil
-	}
-	e.mu.RUnlock()
-	err = e.verifyResponse(resp)
-	if err != nil {
-		return err
-	}
+func (e *Entry) updateResponse(eTag string, maxAge int, resp *ocsp.Response, respBytes []byte) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.response = respBytes
@@ -345,14 +316,39 @@ func (e *Entry) updateResponse() error {
 	e.maxAge = time.Second * time.Duration(maxAge)
 	e.nextUpdate = resp.NextUpdate
 	e.thisUpdate = resp.ThisUpdate
-	e.lastSync = now
+	e.lastSync = e.clk.Now()
 	if e.responseFilename != "" {
-		err = e.writeToDisk()
+		err := e.writeToDisk()
 		if err != nil {
 			return err
 		}
 	}
-	e.info("Response updated")
+	return nil
+}
+
+func (e *Entry) refreshResponse() error {
+	e.info("Attempting to refresh response")
+	ctx, cancel := context.WithTimeout(context.Background(), e.timeout)
+	defer cancel()
+	resp, respBytes, eTag, maxAge, err := e.fetchResponse(ctx)
+	if err != nil {
+		return err
+	}
+
+	e.mu.RLock()
+	if respBytes == nil || bytes.Compare(respBytes, e.response) == 0 {
+		e.mu.RUnlock()
+		e.info("Response has not changed since last sync")
+		e.updateResponse(eTag, maxAge, nil, nil)
+		return nil
+	}
+	e.mu.RUnlock()
+	err = e.verifyResponse(resp)
+	if err != nil {
+		return err
+	}
+	e.updateResponse(eTag, maxAge, resp, respBytes)
+	e.info("Response has been refreshed")
 	return nil
 }
 
@@ -394,7 +390,7 @@ func (e *Entry) monitor() {
 	for {
 		if updateIn := e.timeToUpdate(); updateIn != nil {
 			e.clk.Sleep(*updateIn)
-			err := e.updateResponse()
+			err := e.refreshResponse()
 			if err != nil {
 				e.err("Failed to update entry: %s", err)
 			}

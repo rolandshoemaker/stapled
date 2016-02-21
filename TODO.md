@@ -4,6 +4,7 @@
   * would be nice to have some kind of window into what is currently
     in the cache (prob via another http interface?)
 * Implement proper HTTP caching in both directions
+* Add OCSP NextPublish support
 * Refactor definition parsing section of `config.go`
 * Allow per definition `proxy`/`upstream-stapleds`
 * Polish definition format...
