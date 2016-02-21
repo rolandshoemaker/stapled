@@ -22,6 +22,10 @@ type cache struct {
 	mu        *sync.RWMutex
 }
 
+func newCache(log *Logger) *cache {
+	return &cache{log, make(map[string]*Entry), make(map[[32]byte]*Entry), new(sync.RWMutex)}
+}
+
 func hashEntry(h hash.Hash, name, pkiBytes []byte, serial *big.Int) ([32]byte, error) {
 	issuerNameHash, issuerKeyHash, err := HashNameAndPKI(h, name, pkiBytes)
 	if err != nil {

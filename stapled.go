@@ -3,7 +3,6 @@ package stapled
 import (
 	"fmt"
 	"net/http"
-	"sync"
 
 	"github.com/jmhodges/clock"
 )
@@ -17,7 +16,7 @@ type stapled struct {
 }
 
 func New(log *Logger, clk clock.Clock, httpAddr string, dontDieOnStale bool, entries []*Entry) (*stapled, error) {
-	c := &cache{log, make(map[string]*Entry), make(map[[32]byte]*Entry), new(sync.RWMutex)}
+	c := newCache(log)
 	s := &stapled{log: log, clk: clk, c: c, dontDieOnStaleResponse: dontDieOnStale}
 	// add entries to cache
 	for _, e := range entries {
