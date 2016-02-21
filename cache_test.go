@@ -67,5 +67,9 @@ func TestInsert(t *testing.T) {
 		if present {
 			t.Fatal("Found entry that should've been removed from cache")
 		}
+		_, present = c.lookupResponse(&ocsp.Request{h, nameHash, pkHash, e.serial})
+		if present {
+			t.Fatal("Found response that should've been removed from cache")
+		}
 	}
 }

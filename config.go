@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/url"
+	"path"
 	"time"
 
 	"github.com/jmhodges/clock"
@@ -27,7 +28,7 @@ type CertDefinition struct {
 
 func CertDefToEntryDef(logger *Logger, clk clock.Clock, timeout, backoff time.Duration, cacheFolder string, upstreamStapleds []string, proxy string, def CertDefinition) (*EntryDefinition, error) {
 	ed := &EntryDefinition{
-		Name:        def.Certificate,
+		Name:        path.Base(def.Certificate),
 		Log:         logger,
 		Clk:         clk,
 		Timeout:     timeout,
