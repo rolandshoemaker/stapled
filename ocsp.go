@@ -8,7 +8,6 @@ import (
 	"crypto"
 	"crypto/x509"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"math/big"
@@ -28,6 +27,39 @@ import (
 	"golang.org/x/crypto/ocsp"
 	"golang.org/x/net/context"
 )
+
+func humanDuration(d time.Duration) string {
+	maybePluralize := func(input string, num int) string {
+		if num == 1 {
+			return input
+		}
+		return input + "s"
+	}
+	nanos := time.Duration(d.Nanoseconds())
+	days := int(nanos / (time.Hour * 24))
+	nanos %= time.Hour * 24
+	hours := int(nanos / (time.Hour))
+	nanos %= time.Hour
+	minutes := int(nanos / time.Minute)
+	nanos %= time.Minute
+	seconds := int(nanos / time.Second)
+	s := ""
+	if days > 0 {
+		s += fmt.Sprintf("%d %s ", days, maybePluralize("day", days))
+	}
+	if hours > 0 {
+		s += fmt.Sprintf("%d %s ", hours, maybePluralize("hour", hours))
+	}
+	if minutes > 0 {
+		s += fmt.Sprintf("%d %s ", minutes, maybePluralize("minute", minutes))
+	}
+	if seconds >= 0 {
+		s += fmt.Sprintf("%d %s ", seconds, maybePluralize("second", seconds))
+	}
+	return s
+}
+
+var windowSize = time.Hour * 8
 
 var statusToString = map[int]string{
 	0: "Success",
@@ -170,18 +202,17 @@ func (e *Entry) err(msg string, args ...interface{}) {
 }
 
 func (e *Entry) verifyResponse(resp *ocsp.Response) error {
-	if resp.ThisUpdate.After(e.clk.Now()) {
-		return errors.New("Malformed OCSP response: ThisUpdate is in the future")
+	now := e.clk.Now()
+	if resp.ThisUpdate.After(now) {
+		return fmt.Errorf("malformed OCSP response: ThisUpdate is in the future (%s > %s)", resp.ThisUpdate, now)
 	}
 	if resp.ThisUpdate.After(resp.NextUpdate) {
-		return errors.New("Malformed OCSP response: NextUpdate is before ThisUpate")
+		return fmt.Errorf("malformed OCSP response: NextUpdate is before ThisUpate (%s < %s)", resp.NextUpdate, resp.ThisUpdate)
 	}
 	if e.serial.Cmp(resp.SerialNumber) != 0 {
-		return errors.New("Malformed OCSP response: Serial numbers don't match")
+		return fmt.Errorf("malformed OCSP response: Serial numbers don't match (wanted %s, got %s)", e.serial, resp.SerialNumber)
 	}
-	// check signing cert is still valid? (this could
-	// probably also be taken care of somewhere else...)
-	e.info("New response is valid")
+	e.info("New response is valid, expires in %s", humanDuration(resp.NextUpdate.Sub(now)))
 	return nil
 }
 
@@ -373,18 +404,18 @@ func (e *Entry) timeToUpdate() *time.Duration {
 		}
 	}
 
-	half := e.nextUpdate.Sub(e.thisUpdate) / 2
-	halfWay := e.thisUpdate.Add(half)
-	if halfWay.After(now) {
+	updateWindowStarts := e.nextUpdate.Add(-windowSize)
+
+	if updateWindowStarts.After(now) {
 		return nil
 	}
-	updateTime := halfWay.Add(time.Second * time.Duration(mrand.Intn(int(half.Seconds()))))
+	updateTime := updateWindowStarts.Add(time.Second * time.Duration(mrand.Intn(int(windowSize.Seconds()))))
 	if updateTime.Before(now) {
 		e.info("Update time was in the past, updating immediately")
 		return &instantly
 	}
 	updateIn := updateTime.Sub(now)
-	e.info("Updating response in %s", updateIn)
+	e.info("Updating response in %s", humanDuration(updateIn))
 	return &updateIn
 }
 
