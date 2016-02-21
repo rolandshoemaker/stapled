@@ -304,23 +304,25 @@ func (e *Entry) readFromDisk() error {
 	if err != nil {
 		return err
 	}
-	e.updateResponse("", 0, resp, respBytes)
+	e.updateResponse("", 0, resp, respBytes, false)
 	return nil
 }
 
-func (e *Entry) updateResponse(eTag string, maxAge int, resp *ocsp.Response, respBytes []byte) error {
+func (e *Entry) updateResponse(eTag string, maxAge int, resp *ocsp.Response, respBytes []byte, write bool) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.response = respBytes
 	e.eTag = eTag
 	e.maxAge = time.Second * time.Duration(maxAge)
-	e.nextUpdate = resp.NextUpdate
-	e.thisUpdate = resp.ThisUpdate
 	e.lastSync = e.clk.Now()
-	if e.responseFilename != "" {
-		err := e.writeToDisk()
-		if err != nil {
-			return err
+	if resp != nil {
+		e.response = respBytes
+		e.nextUpdate = resp.NextUpdate
+		e.thisUpdate = resp.ThisUpdate
+		if e.responseFilename != "" && write {
+			err := e.writeToDisk()
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -336,10 +338,10 @@ func (e *Entry) refreshResponse() error {
 	}
 
 	e.mu.RLock()
-	if respBytes == nil || bytes.Compare(respBytes, e.response) == 0 {
+	if resp == nil || bytes.Compare(respBytes, e.response) == 0 {
 		e.mu.RUnlock()
 		e.info("Response has not changed since last sync")
-		e.updateResponse(eTag, maxAge, nil, nil)
+		e.updateResponse(eTag, maxAge, nil, nil, true)
 		return nil
 	}
 	e.mu.RUnlock()
@@ -347,7 +349,7 @@ func (e *Entry) refreshResponse() error {
 	if err != nil {
 		return err
 	}
-	e.updateResponse(eTag, maxAge, resp, respBytes)
+	e.updateResponse(eTag, maxAge, resp, respBytes, true)
 	e.info("Response has been refreshed")
 	return nil
 }
