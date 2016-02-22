@@ -15,15 +15,44 @@ import (
 )
 
 type CertDefinition struct {
-	Certificate      string
-	Name             string
-	Issuer           string
-	Serial           string
-	Responders       []string
-	UpstreamStapleds []string `yaml:"upstream-stapleds"`
-	Proxy            string
-	OverrideUpstream bool `yaml:"override-upstream"`
-	OverrideProxy    bool `yaml:"override-proxy"`
+	Certificate            string
+	Name                   string
+	ResponseName           string
+	Issuer                 string
+	Serial                 string
+	Responders             []string
+	Proxy                  string
+	OverrideGlobalUpstream bool `yaml:"override-global-upstream"`
+	OverrideGlobalProxy    bool `yaml:"override-global-proxy"`
+}
+
+func DefToEntry(def CertDefinition, globalUpstream []string, globalProxy string) (*Entry, error) {
+	e := &Entry{}
+	if def.Certificate != "" {
+		// load certificate (and opportunistically check for issuer)
+		// e.loadCertificate(def.Certificate, def.Issuer)
+	} else {
+		// load certificate definition info
+		// e.loadCertificateInfo(def.Name, def.Serial)
+	}
+	if e.issuer == nil {
+		// load issuer
+		// e.loadIssuer(def.Issuer)
+	}
+	if len(globalUpstream) > 0 && !def.OverrideGlobalUpstream {
+		e.responders = globalUpstream
+	} else if len(def.Responders) > 0 {
+		e.responders = def.Responders
+	}
+	if globalProxy != "" && !def.OverrideGlobalProxy {
+		// e.loadProxy(globalProxy)
+	} else if def.Proxy != "" {
+		// e.loadProxy(def.Proxy)
+	}
+	if def.ResponseName != "" {
+		e.responseFilename = def.ResponseName
+	}
+	return e, nil
 }
 
 func CertDefToEntryDef(logger *Logger, clk clock.Clock, timeout, backoff time.Duration, cacheFolder string, upstreamStapleds []string, proxy string, def CertDefinition) (*EntryDefinition, error) {
@@ -37,7 +66,7 @@ func CertDefToEntryDef(logger *Logger, clk clock.Clock, timeout, backoff time.Du
 		CacheFolder: cacheFolder,
 	}
 	if def.Certificate == "" && (def.Serial == "" || def.Name == "") {
-		return nil, fmt.Errorf("Either 'certificate' or 'name' and 'serial' are required")
+		return nil, fmt.Errorf("either 'certificate' or 'name' and 'serial' are required")
 	}
 	var cert *x509.Certificate
 	var err error
@@ -90,7 +119,7 @@ func CertDefToEntryDef(logger *Logger, clk clock.Clock, timeout, backoff time.Du
 		return nil, fmt.Errorf("issuer can only be ommited if the certificate contains AIA information about its issuer")
 	}
 	if ed.Issuer == nil {
-		return nil, fmt.Errorf("Unable to retrieve issuer")
+		return nil, fmt.Errorf("unable to retrieve issuer")
 	}
 
 	if len(def.Responders) > 0 {
@@ -100,12 +129,12 @@ func CertDefToEntryDef(logger *Logger, clk clock.Clock, timeout, backoff time.Du
 		ed.Responders = upstreamStapleds
 	}
 	if len(ed.Responders) == 0 {
-		return nil, fmt.Errorf("No responders provided")
+		return nil, fmt.Errorf("no responders provided")
 	}
 	if proxy != "" {
 		proxyURL, err := url.Parse(proxy)
 		if err != nil {
-			return nil, fmt.Errorf("Failed to parse proxy URL: %s", err)
+			return nil, fmt.Errorf("failed to parse proxy URL: %s", err)
 		}
 		ed.Proxy = http.ProxyURL(proxyURL)
 	}
