@@ -1,7 +1,7 @@
 // Logic for fetching and verifiying OCSP responses, as
 // well as deciding if a response should be updated.
 
-package stapled
+package main
 
 import (
 	"encoding/base64"
@@ -48,8 +48,6 @@ func humanDuration(d time.Duration) string {
 	}
 	return s
 }
-
-var windowSize = time.Hour * 8
 
 var statusToString = map[int]string{
 	0: "Success",

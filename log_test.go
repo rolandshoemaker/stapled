@@ -1,1 +1,1 @@
-package stapled
+package main

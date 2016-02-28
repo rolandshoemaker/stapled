@@ -2,7 +2,7 @@
 // (should probably have an interface and a default
 // on disk cache + the in-memory one?).
 
-package stapled
+package main
 
 import (
 	"bytes"
@@ -441,6 +441,7 @@ func (e *Entry) timeToUpdate() *time.Duration {
 		}
 	}
 
+	windowSize := e.nextUpdate.Sub(e.thisUpdate) / 4
 	updateWindowStarts := e.nextUpdate.Add(-windowSize)
 
 	if updateWindowStarts.After(now) {

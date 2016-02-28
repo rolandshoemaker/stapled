@@ -1,4 +1,4 @@
-package stapled
+package main
 
 type CertDefinition struct {
 	Certificate            string

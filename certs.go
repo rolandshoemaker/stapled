@@ -1,4 +1,4 @@
-package stapled
+package main
 
 import (
 	"crypto/x509"

@@ -6,8 +6,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/rolandshoemaker/stapled"
-
 	"github.com/jmhodges/clock"
 	"gopkg.in/yaml.v2"
 )
@@ -20,7 +18,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Failed to read configuration file '%s': %s", configFilename, err)
 		os.Exit(1)
 	}
-	var config stapled.Configuration
+	var config Configuration
 	err = yaml.Unmarshal(configBytes, &config)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to parse configuration file: %s", err)
@@ -28,7 +26,7 @@ func main() {
 	}
 
 	clk := clock.Default()
-	logger := stapled.NewLogger(config.Syslog.Network, config.Syslog.Addr, config.Syslog.StdoutLevel, clk)
+	logger := NewLogger(config.Syslog.Network, config.Syslog.Addr, config.Syslog.StdoutLevel, clk)
 
 	baseBackoff := time.Second * time.Duration(10)
 	timeout := time.Second * time.Duration(10)
@@ -50,9 +48,9 @@ func main() {
 	}
 
 	logger.Info("Loading definitions")
-	entries := []*stapled.Entry{}
+	entries := []*Entry{}
 	for _, def := range config.Definitions.Certificates {
-		e := stapled.NewEntry(logger, clk, timeout, baseBackoff, 1*time.Minute)
+		e := NewEntry(logger, clk, timeout, baseBackoff, 1*time.Minute)
 		err = e.FromCertDef(def, config.Fetcher.UpstreamResponders, config.Fetcher.Proxy, config.Disk.CacheFolder)
 		if err != nil {
 			logger.Err("Failed to populate entry: %s", err)
@@ -67,7 +65,7 @@ func main() {
 	}
 
 	logger.Info("Initializing stapled")
-	s, err := stapled.New(logger, clk, config.HTTP.Addr, timeout, baseBackoff, 1*time.Minute, config.Fetcher.UpstreamResponders, config.Disk.CacheFolder, config.DontDieOnStaleResponse, entries)
+	s, err := New(logger, clk, config.HTTP.Addr, timeout, baseBackoff, 1*time.Minute, config.Fetcher.UpstreamResponders, config.Disk.CacheFolder, config.DontDieOnStaleResponse, entries)
 	if err != nil {
 		logger.Err("Failed to initialize stapled: %s", err)
 		os.Exit(1)

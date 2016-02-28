@@ -2,7 +2,7 @@
 // (should probably use a CFSSL responder with
 // a custom Source).
 
-package stapled
+package main
 
 import (
 	"crypto/sha256"
