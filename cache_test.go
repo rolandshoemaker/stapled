@@ -11,7 +11,7 @@ import (
 	"golang.org/x/crypto/ocsp"
 )
 
-func TestInsert(t *testing.T) {
+func TestCache(t *testing.T) {
 	c := newCache(NewLogger("", "", 10, clock.Default()))
 
 	issuer, err := ReadCertificate("testdata/test-issuer.der")
@@ -24,6 +24,7 @@ func TestInsert(t *testing.T) {
 		serial:   big.NewInt(1337),
 		issuer:   issuer,
 		response: []byte{5, 0, 1},
+		stop:     make(chan struct{}, 1),
 	}
 
 	err = c.add(e)
@@ -56,6 +57,10 @@ func TestInsert(t *testing.T) {
 	err = c.remove("test.der")
 	if err != nil {
 		t.Fatalf("Failed to remove entry from cache: %s", err)
+	}
+
+	if len(e.stop) != 1 {
+		t.Fatalf("Failed to send a signal on the monitor stop channel")
 	}
 
 	for _, h := range []crypto.Hash{crypto.SHA1, crypto.SHA256, crypto.SHA384, crypto.SHA512} {
