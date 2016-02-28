@@ -7,6 +7,7 @@ package stapled
 import (
 	"net/http"
 
+	cflog "github.com/cloudflare/cfssl/log"
 	cfocsp "github.com/cloudflare/cfssl/ocsp"
 	"golang.org/x/crypto/ocsp"
 )
@@ -15,7 +16,8 @@ func (s *stapled) Response(r *ocsp.Request) ([]byte, bool) {
 	return s.c.lookupResponse(r)
 }
 
-func (s *stapled) initResponder(httpAddr string) {
+func (s *stapled) initResponder(httpAddr string, logger *Logger) {
+	cflog.SetLogger(&responderLogger{logger})
 	m := http.StripPrefix("/", cfocsp.NewResponder(s))
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" && r.URL.Path == "/" {

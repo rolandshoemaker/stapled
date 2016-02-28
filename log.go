@@ -88,3 +88,47 @@ func (log *Logger) Warning(msg string, args ...interface{}) {
 func (log *Logger) Notice(msg string, args ...interface{}) {
 	log.logAtLevel(syslog.LOG_NOTICE, fmt.Sprintf(msg, args...))
 }
+
+type responderLogger struct {
+	l *Logger
+}
+
+func (rl *responderLogger) Alert(msg string) error {
+	rl.l.Alert("[responder] " + msg)
+	return nil
+}
+
+func (rl *responderLogger) Crit(msg string) error {
+	rl.l.Crit("[responder] " + msg)
+	return nil
+}
+
+func (rl *responderLogger) Debug(msg string) error {
+	rl.l.Debug("[responder] " + msg)
+	return nil
+}
+
+func (rl *responderLogger) Emerg(msg string) error {
+	rl.l.Emerg("[responder] " + msg)
+	return nil
+}
+
+func (rl *responderLogger) Err(msg string) error {
+	rl.l.Err("[responder] " + msg)
+	return nil
+}
+
+func (rl *responderLogger) Info(msg string) error {
+	rl.l.Info("[responder] " + msg)
+	return nil
+}
+
+func (rl *responderLogger) Warning(msg string) error {
+	rl.l.Warning("[responder] " + msg)
+	return nil
+}
+
+func (rl *responderLogger) Notice(msg string) error {
+	rl.l.Notice("[responder] " + msg)
+	return nil
+}

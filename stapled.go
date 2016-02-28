@@ -23,7 +23,7 @@ func New(log *Logger, clk clock.Clock, httpAddr string, dontDieOnStale bool, ent
 		c.add(e)
 	}
 	// initialize OCSP repsonder
-	s.initResponder(httpAddr)
+	s.initResponder(httpAddr, log)
 	return s, nil
 }
 
