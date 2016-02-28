@@ -1,13 +1,26 @@
 package main
 
+import (
+	"fmt"
+	"io/ioutil"
+	"path"
+)
+
 type dirWatcher struct {
 	folder string
-	files map[string]struct{}
+	files  map[string]struct{}
 }
 
-func (w *dirWatcher) check() (added, removed []string, error) {
+func newDirWatcher(folder string) *dirWatcher {
+	if folder != "" {
+		return &dirWatcher{folder, make(map[string]struct{})}
+	}
+	return nil
+}
+
+func (w *dirWatcher) check() (added, removed []string, err error) {
 	files := make(map[string]struct{})
-	info, err := os.ReadDir(folder)
+	info, err := ioutil.ReadDir(w.folder)
 	if err != nil {
 		return
 	}
@@ -17,14 +30,15 @@ func (w *dirWatcher) check() (added, removed []string, error) {
 		}
 		files[fi.Name()] = struct{}{}
 	}
-	for _, name := range w.files {
+	for name := range w.files {
 		if _, present := files[name]; !present {
-			removed = append(removed, name)
+			removed = append(removed, path.Join(w.folder, name))
 		}
 	}
-	for _, name := range files {
+	for name := range files {
 		if _, present := w.files[name]; !present {
-			added = append(added, name)
+			w.files[name] = struct{}{}
+			added = append(added, path.Join(w.folder, name))
 		}
 	}
 	return

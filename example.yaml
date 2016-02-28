@@ -1,7 +1,7 @@
 definitions:
-  # folder: certs/
+  cert-watch-folder: certs/
   certificates:
-    # - certificate: certs/test.der
+    - certificate: certs/test.der
     #   issuer: issuer.der
     # - certificate: certs/test-b.der
 

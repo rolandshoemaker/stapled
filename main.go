@@ -65,7 +65,19 @@ func main() {
 	}
 
 	logger.Info("Initializing stapled")
-	s, err := New(logger, clk, config.HTTP.Addr, timeout, baseBackoff, 1*time.Minute, config.Fetcher.UpstreamResponders, config.Disk.CacheFolder, config.DontDieOnStaleResponse, entries)
+	s, err := New(
+		logger,
+		clk,
+		config.HTTP.Addr,
+		timeout,
+		baseBackoff,
+		1*time.Minute,
+		config.Fetcher.UpstreamResponders,
+		config.Disk.CacheFolder,
+		config.DontDieOnStaleResponse,
+		config.Definitions.CertWatchFolder,
+		entries,
+	)
 	if err != nil {
 		logger.Err("Failed to initialize stapled: %s", err)
 		os.Exit(1)

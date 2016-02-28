@@ -20,9 +20,9 @@ type FetcherConfig struct {
 }
 
 type CertificateDefinitions struct {
-	Folder       string
-	IssuerFolder string `yaml:"issuer-folder"`
-	Certificates []CertDefinition
+	CertWatchFolder string `yaml:"cert-watch-folder"`
+	IssuerFolder    string `yaml:"issuer-folder"`
+	Certificates    []CertDefinition
 }
 
 type Configuration struct {
