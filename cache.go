@@ -85,9 +85,20 @@ func (c *cache) lookupResponse(request *ocsp.Request) ([]byte, bool) {
 	return nil, present
 }
 
+func (c *cache) addSingle(e *Entry, key [32]byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, present := c.entries[e.name]; present {
+		// log or fail...?
+		c.log.Warning("[cache] Overwriting cache entry")
+	}
+	c.lookupMap[key] = e
+	c.log.Info("[cache] New entry for '%s' added", e.name)
+}
+
 // this cache structure seems kind of gross but... idk i think it's prob
 // best for now (until I can think of something better :/)
-func (c *cache) add(e *Entry) error {
+func (c *cache) addMulti(e *Entry) error {
 	hashes, err := allHashes(e)
 	if err != nil {
 		return err
@@ -258,7 +269,9 @@ func (e *Entry) FromCertDef(def CertDefinition, globalUpstream []string, globalP
 	if e.issuer == nil {
 		return fmt.Errorf("either issuer or a certificate containing issuer AIA information must be provided")
 	}
-	e.generateResponseFilename(cacheFolder)
+	if cacheFolder != "" {
+		e.generateResponseFilename(cacheFolder)
+	}
 	if len(globalUpstream) > 0 && !def.OverrideGlobalUpstream {
 		e.responders = globalUpstream
 	} else if len(def.Responders) > 0 {
@@ -387,7 +400,7 @@ func (e *Entry) refreshResponse() error {
 	e.info("Attempting to refresh response")
 	ctx, cancel := context.WithTimeout(context.Background(), e.timeout)
 	defer cancel()
-	resp, respBytes, eTag, maxAge, err := e.fetchResponse(ctx)
+	resp, respBytes, eTag, maxAge, err := e.fetchResponse(ctx, randomResponder(e.responders))
 	if err != nil {
 		return err
 	}

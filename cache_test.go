@@ -27,7 +27,7 @@ func TestCache(t *testing.T) {
 		stop:     make(chan struct{}, 1),
 	}
 
-	err = c.add(e)
+	err = c.addMulti(e)
 	if err != nil {
 		t.Fatalf("Failed to add entry to cache: %s", err)
 	}

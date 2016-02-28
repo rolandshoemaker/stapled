@@ -78,8 +78,8 @@ func (e *Entry) verifyResponse(resp *ocsp.Response) error {
 	return nil
 }
 
-func (e *Entry) randomResponder() string {
-	return e.responders[mrand.Intn(len(e.responders))]
+func randomResponder(responders []string) string {
+	return responders[mrand.Intn(len(responders))]
 }
 
 func parseCacheControl(h string) int {
@@ -93,7 +93,7 @@ func parseCacheControl(h string) int {
 	return maxAge
 }
 
-func (e *Entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, string, int, error) {
+func (e *Entry) fetchResponse(ctx context.Context, responder string) (*ocsp.Response, []byte, string, int, error) {
 	backoffSeconds := 0
 	for {
 		if backoffSeconds > 0 {
@@ -111,7 +111,7 @@ func (e *Entry) fetchResponse(ctx context.Context) (*ocsp.Response, []byte, stri
 			"GET",
 			fmt.Sprintf(
 				"%s/%s",
-				e.randomResponder(),
+				responder,
 				url.QueryEscape(base64.StdEncoding.EncodeToString(e.request)),
 			),
 			nil,

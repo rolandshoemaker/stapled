@@ -13,10 +13,10 @@ type CertDefinition struct {
 }
 
 type FetcherConfig struct {
-	Timeout          string
-	BaseBackoff      string `yaml:"base-backoff"`
-	Proxy            string
-	UpstreamStapleds []string `yaml:"upstream-stapleds"`
+	Timeout            string
+	BaseBackoff        string `yaml:"base-backoff"`
+	Proxy              string
+	UpstreamResponders []string `yaml:"upstream-responders"`
 }
 
 type CertificateDefinitions struct {

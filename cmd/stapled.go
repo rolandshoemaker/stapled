@@ -53,7 +53,7 @@ func main() {
 	entries := []*stapled.Entry{}
 	for _, def := range config.Definitions.Certificates {
 		e := stapled.NewEntry(logger, clk, timeout, baseBackoff, 1*time.Minute)
-		err = e.FromCertDef(def, config.Fetcher.UpstreamStapleds, config.Fetcher.Proxy, config.Disk.CacheFolder)
+		err = e.FromCertDef(def, config.Fetcher.UpstreamResponders, config.Fetcher.Proxy, config.Disk.CacheFolder)
 		if err != nil {
 			logger.Err("Failed to populate entry: %s", err)
 			os.Exit(1)
@@ -67,7 +67,7 @@ func main() {
 	}
 
 	logger.Info("Initializing stapled")
-	s, err := stapled.New(logger, clk, config.HTTP.Addr, config.DontDieOnStaleResponse, entries)
+	s, err := stapled.New(logger, clk, config.HTTP.Addr, timeout, baseBackoff, 1*time.Minute, config.Fetcher.UpstreamResponders, config.Disk.CacheFolder, config.DontDieOnStaleResponse, entries)
 	if err != nil {
 		logger.Err("Failed to initialize stapled: %s", err)
 		os.Exit(1)

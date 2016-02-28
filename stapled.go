@@ -3,6 +3,7 @@ package stapled
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/jmhodges/clock"
 )
@@ -12,15 +13,30 @@ type stapled struct {
 	clk                    clock.Clock
 	c                      *cache
 	responder              *http.Server
+	clientTimeout          time.Duration
+	clientBackoff          time.Duration
+	entryMonitorTick       time.Duration
+	upstreamResponders     []string
+	cacheFolder            string
 	dontDieOnStaleResponse bool
 }
 
-func New(log *Logger, clk clock.Clock, httpAddr string, dontDieOnStale bool, entries []*Entry) (*stapled, error) {
+func New(log *Logger, clk clock.Clock, httpAddr string, timeout, backoff, entryMonitorTick time.Duration, responders []string, cacheFolder string, dontDieOnStale bool, entries []*Entry) (*stapled, error) {
 	c := newCache(log)
-	s := &stapled{log: log, clk: clk, c: c, dontDieOnStaleResponse: dontDieOnStale}
+	s := &stapled{
+		log:                    log,
+		clk:                    clk,
+		c:                      c,
+		clientTimeout:          timeout,
+		clientBackoff:          backoff,
+		entryMonitorTick:       entryMonitorTick,
+		cacheFolder:            cacheFolder,
+		dontDieOnStaleResponse: dontDieOnStale,
+		upstreamResponders:     responders,
+	}
 	// add entries to cache
 	for _, e := range entries {
-		c.add(e)
+		c.addMulti(e)
 	}
 	// initialize OCSP repsonder
 	s.initResponder(httpAddr, log)
