@@ -8,6 +8,7 @@ import (
 	"crypto"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"io/ioutil"
 	"math/big"
@@ -96,50 +97,128 @@ type Entry struct {
 	nextUpdate       time.Time
 	thisUpdate       time.Time
 
-	mu *sync.RWMutex
+	stop chan struct{}
+	mu   *sync.RWMutex
 }
 
-type EntryDefinition struct {
-	Log         *Logger
-	Clk         clock.Clock
-	Name        string
-	CacheFolder string
-	Response    []byte
-	Issuer      *x509.Certificate
-	Serial      *big.Int
-	Responders  []string
-	Timeout     time.Duration
-	Backoff     time.Duration
-	Proxy       func(*http.Request) (*url.URL, error)
+func NewEntry(log *Logger, clk clock.Clock, timeout, baseBackoff, monitorTick time.Duration) *Entry {
+	return &Entry{
+		log:         log,
+		clk:         clk,
+		timeout:     timeout,
+		baseBackoff: baseBackoff,
+		mu:          new(sync.RWMutex),
+		monitorTick: monitorTick,
+		stop:        make(chan struct{}, 1),
+	}
 }
 
-func NewEntry(def *EntryDefinition) (*Entry, error) {
-	issuerNameHash, issuerKeyHash, err := HashNameAndPKI(
-		crypto.SHA1.New(),
-		def.Issuer.RawSubject,
-		def.Issuer.RawSubjectPublicKeyInfo,
+func loadProxy(uri string) (func(*http.Request) (*url.URL, error), error) {
+	proxyURL, err := url.Parse(uri)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse proxy URL: %s", err)
+	}
+	return http.ProxyURL(proxyURL), nil
+}
+
+func (e *Entry) generateResponseFilename(cacheFolder string) {
+	e.responseFilename = path.Join(
+		cacheFolder,
+		fmt.Sprintf(
+			"%s.resp",
+			strings.TrimSuffix(
+				filepath.Base(e.name),
+				filepath.Ext(e.name),
+			),
+		),
 	)
+}
+
+func (e *Entry) loadCertificate(filename string) error {
+	e.name = filename
+	cert, err := ReadCertificate(filename)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	ocspRequest := &ocsp.Request{
-		crypto.SHA1,
-		issuerNameHash,
-		issuerKeyHash,
-		def.Serial,
+	e.serial = cert.SerialNumber
+	e.responders = cert.OCSPServer
+	if e.issuer == nil && len(cert.IssuingCertificateURL) > 0 {
+		for _, issuerURL := range cert.IssuingCertificateURL {
+			// this should be its own function
+			resp, err := http.Get(issuerURL)
+			if err != nil {
+				e.log.Err("Failed to retrieve issuer from '%s': %s", issuerURL, err)
+				continue
+			}
+			defer resp.Body.Close()
+			body, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				e.log.Err("Failed to read issuer body from '%s': %s", issuerURL, err)
+				continue
+			}
+			e.issuer, err = ParseCertificate(body)
+			if err != nil {
+				e.log.Err("Failed to parse issuer body from '%s': %s", issuerURL, err)
+				continue
+			}
+		}
 	}
-	request, err := ocspRequest.Marshal()
+	return nil
+}
+
+func (e *Entry) loadCertificateInfo(name, serial string) error {
+	e.name = name
+	e.responseFilename = name + ".resp"
+	serialBytes, err := hex.DecodeString(serial)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("failed to decode serial '%s': %s", e.serial, err)
 	}
-	for i := range def.Responders {
-		def.Responders[i] = strings.TrimSuffix(def.Responders[i], "/")
+	e.serial = e.serial.SetBytes(serialBytes)
+	return nil
+}
+
+func (e *Entry) FromCertDef(def CertDefinition, globalUpstream []string, globalProxy string, cacheFolder string) error {
+	if def.Issuer != "" {
+		var err error
+		e.issuer, err = ReadCertificate(def.Issuer)
+		if err != nil {
+			return err
+		}
 	}
-	client := new(http.Client)
-	if def.Proxy != nil {
-		// default transport + proxy
-		client.Transport = &http.Transport{
-			Proxy: def.Proxy,
+	if def.Certificate != "" {
+		err := e.loadCertificate(def.Certificate)
+		if err != nil {
+			return err
+		}
+	} else {
+		err := e.loadCertificateInfo(def.Name, def.Serial)
+		if err != nil {
+			return err
+		}
+	}
+	if e.issuer == nil {
+		return fmt.Errorf("Either issuer or a certificate containing issuer AIA information must be provided")
+	}
+	e.generateResponseFilename(cacheFolder)
+	if len(globalUpstream) > 0 && !def.OverrideGlobalUpstream {
+		e.responders = globalUpstream
+	} else if len(def.Responders) > 0 {
+		e.responders = def.Responders
+	}
+	proxyURI := ""
+	if globalProxy != "" && !def.OverrideGlobalProxy {
+		proxyURI = globalProxy
+	} else if def.Proxy != "" {
+		proxyURI = def.Proxy
+	}
+	if proxyURI != "" {
+		proxy, err := loadProxy(proxyURI)
+		if err != nil {
+			return err
+		}
+		e.client = new(http.Client)
+		e.client.Transport = &http.Transport{
+			Proxy: proxy,
 			Dial: (&net.Dialer{
 				Timeout:   30 * time.Second,
 				KeepAlive: 30 * time.Second,
@@ -147,50 +226,45 @@ func NewEntry(def *EntryDefinition) (*Entry, error) {
 			TLSHandshakeTimeout: 10 * time.Second,
 		}
 	}
-	responseFilename := ""
-	if def.CacheFolder != "" {
-		responseFilename = path.Join(
-			def.CacheFolder,
-			fmt.Sprintf(
-				"%s.resp",
-				strings.TrimSuffix(
-					filepath.Base(def.Name),
-					filepath.Ext(def.Name),
-				),
-			),
-		)
+	return nil
+}
+
+func (e *Entry) Init() error {
+	issuerNameHash, issuerKeyHash, err := HashNameAndPKI(
+		crypto.SHA1.New(),
+		e.issuer.RawSubject,
+		e.issuer.RawSubjectPublicKeyInfo,
+	)
+	if err != nil {
+		return err
 	}
-	e := &Entry{
-		name:             def.Name,
-		log:              def.Log,
-		clk:              def.Clk,
-		serial:           def.Serial,
-		issuer:           def.Issuer,
-		client:           client,
-		request:          request,
-		responders:       def.Responders,
-		timeout:          def.Timeout,
-		baseBackoff:      def.Backoff,
-		response:         def.Response,
-		mu:               new(sync.RWMutex),
-		lastSync:         def.Clk.Now(),
-		monitorTick:      1 * time.Minute,
-		responseFilename: responseFilename,
+	ocspRequest := &ocsp.Request{
+		crypto.SHA1,
+		issuerNameHash,
+		issuerKeyHash,
+		e.serial,
 	}
-	if e.responseFilename != "" {
-		err = e.readFromDisk()
-		if err != nil && !os.IsNotExist(err) {
-			return nil, err
-		}
+	e.request, err = ocspRequest.Marshal()
+	if err != nil {
+		return err
 	}
-	if e.response == nil {
+	for i := range e.responders {
+		e.responders[i] = strings.TrimSuffix(e.responders[i], "/")
+	}
+	if e.client == nil {
+		e.client = new(http.Client)
+	}
+	err = e.readFromDisk()
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	} else if err != nil && os.IsNotExist(err) {
 		err = e.refreshResponse()
 		if err != nil {
-			return nil, err
+			return err
 		}
 	}
 	go e.monitor()
-	return e, nil
+	return nil
 }
 
 func (e *Entry) info(msg string, args ...interface{}) {
@@ -204,10 +278,13 @@ func (e *Entry) err(msg string, args ...interface{}) {
 func (e *Entry) verifyResponse(resp *ocsp.Response) error {
 	now := e.clk.Now()
 	if resp.ThisUpdate.After(now) {
-		return fmt.Errorf("malformed OCSP response: ThisUpdate is in the future (%s > %s)", resp.ThisUpdate, now)
+		return fmt.Errorf("malformed OCSP response: ThisUpdate is in the future (%s after %s)", resp.ThisUpdate, now)
+	}
+	if resp.NextUpdate.Before(now) {
+		return fmt.Errorf("stale OCSP response: NextUpdate is in the past (%s before %s)", resp.NextUpdate, now)
 	}
 	if resp.ThisUpdate.After(resp.NextUpdate) {
-		return fmt.Errorf("malformed OCSP response: NextUpdate is before ThisUpate (%s < %s)", resp.NextUpdate, resp.ThisUpdate)
+		return fmt.Errorf("malformed OCSP response: NextUpdate is before ThisUpate (%s before %s)", resp.NextUpdate, resp.ThisUpdate)
 	}
 	if e.serial.Cmp(resp.SerialNumber) != 0 {
 		return fmt.Errorf("malformed OCSP response: Serial numbers don't match (wanted %s, got %s)", e.serial, resp.SerialNumber)
@@ -420,14 +497,19 @@ func (e *Entry) timeToUpdate() *time.Duration {
 }
 
 func (e *Entry) monitor() {
+	ticker := time.NewTicker(e.monitorTick)
 	for {
-		if updateIn := e.timeToUpdate(); updateIn != nil {
-			e.clk.Sleep(*updateIn)
-			err := e.refreshResponse()
-			if err != nil {
-				e.err("Failed to update entry: %s", err)
+		select {
+		case <-e.stop:
+			return
+		case <-ticker.C:
+			if updateIn := e.timeToUpdate(); updateIn != nil {
+				e.clk.Sleep(*updateIn)
+				err := e.refreshResponse()
+				if err != nil {
+					e.err("Failed to update entry: %s", err)
+				}
 			}
 		}
-		e.clk.Sleep(e.monitorTick)
 	}
 }

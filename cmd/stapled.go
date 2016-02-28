@@ -52,25 +52,18 @@ func main() {
 	logger.Info("Loading definitions")
 	entries := []*stapled.Entry{}
 	for _, def := range config.Definitions.Certificates {
-		ed, err := stapled.CertDefToEntryDef(logger,
-			clk,
-			timeout,
-			baseBackoff,
-			config.Disk.CacheFolder,
-			config.Fetcher.UpstreamStapleds,
-			config.Fetcher.Proxy,
-			def,
-		)
+		e := stapled.NewEntry(logger, clk, timeout, baseBackoff, 1*time.Minute)
+		err = e.FromCertDef(def, config.Fetcher.UpstreamStapleds, config.Fetcher.Proxy, config.Disk.CacheFolder)
 		if err != nil {
-			logger.Err("Failed to parse definition: %s", err)
+			logger.Err("Failed to populate entry: %s", err)
 			os.Exit(1)
 		}
-		entry, err := stapled.NewEntry(ed)
+		err = e.Init()
 		if err != nil {
-			logger.Err("Failed to create entry: %s", err)
+			logger.Err("Failed to initialize entry: %s", err)
 			os.Exit(1)
 		}
-		entries = append(entries, entry)
+		entries = append(entries, e)
 	}
 
 	logger.Info("Initializing stapled")
