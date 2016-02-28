@@ -90,10 +90,11 @@ func (c *cache) addSingle(e *Entry, key [32]byte) {
 	defer c.mu.Unlock()
 	if _, present := c.entries[e.name]; present {
 		// log or fail...?
-		c.log.Warning("[cache] Overwriting cache entry")
+		c.log.Warning("[cache] Overwriting cache entry '%s'", e.name)
+	} else {
+		c.log.Info("[cache] Adding entry for '%s'", e.name)
 	}
 	c.lookupMap[key] = e
-	c.log.Info("[cache] New entry for '%s' added", e.name)
 }
 
 // this cache structure seems kind of gross but... idk i think it's prob
@@ -107,13 +108,14 @@ func (c *cache) addMulti(e *Entry) error {
 	defer c.mu.Unlock()
 	if _, present := c.entries[e.name]; present {
 		// log or fail...?
-		c.log.Warning("[cache] Overwriting cache entry")
+		c.log.Warning("[cache] Overwriting cache entry '%s'", e.name)
+	} else {
+		c.log.Info("[cache] Adding entry for '%s'", e.name)
 	}
 	c.entries[e.name] = e
 	for _, h := range hashes {
 		c.lookupMap[h] = e
 	}
-	c.log.Info("[cache] New entry for '%s' added", e.name)
 	return nil
 }
 
