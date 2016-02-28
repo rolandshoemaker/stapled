@@ -190,14 +190,16 @@ func (e *Entry) FromCertDef(def CertDefinition, globalUpstream []string, globalP
 		if err != nil {
 			return err
 		}
-	} else {
+	} else if def.Name != "" && def.Serial != "" {
 		err := e.loadCertificateInfo(def.Name, def.Serial)
 		if err != nil {
 			return err
 		}
+	} else {
+		return fmt.Errorf("either certificate or name and serial must be provided")
 	}
 	if e.issuer == nil {
-		return fmt.Errorf("Either issuer or a certificate containing issuer AIA information must be provided")
+		return fmt.Errorf("either issuer or a certificate containing issuer AIA information must be provided")
 	}
 	e.generateResponseFilename(cacheFolder)
 	if len(globalUpstream) > 0 && !def.OverrideGlobalUpstream {

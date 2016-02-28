@@ -99,6 +99,7 @@ func (c *cache) remove(name string) error {
 		return fmt.Errorf("Entry '%s' is not in the cache", name)
 	}
 	e.mu.Lock()
+	e.stop <- struct{}{}
 	delete(c.entries, name)
 	hashes, err := allHashes(e)
 	if err != nil {
