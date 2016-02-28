@@ -46,17 +46,34 @@ func New(log *Logger, clk clock.Clock, httpAddr string, timeout, backoff, entryM
 }
 
 func (s *stapled) checkCertDirectory() {
-	_, removed, err := s.certFolderWatcher.check()
+	added, removed, err := s.certFolderWatcher.check()
 	if err != nil {
 		// log
 		s.log.Err("Failed to poll certificate directory: %s", err)
 		return
 	}
-	// for _, a := range added {
-	// create entry + add to cache
-	// }
+	for _, a := range added {
+		// create entry + add to cache
+		e := NewEntry(s.log, s.clk, s.clientTimeout, s.clientBackoff, s.entryMonitorTick)
+		err = e.loadCertificate(a)
+		if err != nil {
+			s.log.Err("Failed to load new certificate '%s': %s", a, err)
+			continue
+		}
+		if s.cacheFolder != "" {
+			e.generateResponseFilename(s.cacheFolder)
+		}
+		err = e.Init()
+		if err != nil {
+			s.log.Err("Failed to initialize entry for new certificate '%s': %s", a, err)
+			continue
+		}
+		err = s.c.addMulti(e)
+		if err != nil {
+			s.log.Err("Failed to add entry to cache for new certificate '%s': %s", a, err)
+		}
+	}
 	for _, r := range removed {
-		// remove from cache
 		s.c.remove(r)
 	}
 }
