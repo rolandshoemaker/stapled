@@ -1,6 +1,7 @@
 package main
 
 import (
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -13,7 +14,7 @@ type timing struct {
 	mu           *sync.RWMutex
 }
 
-func sumDurations(durs map[int64]time.Duration) time.Duration {
+func sumDurations(durs []time.Duration) time.Duration {
 	sum := time.Duration(0)
 	for _, d := range durs {
 		sum += d
@@ -30,11 +31,37 @@ func (t *timing) rate() int64 {
 func (t *timing) mean() float64 {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	return (sumDurations(t.times).Seconds() / 1000) / float64(len(t.times))
+	times := []time.Duration{}
+	for _, d := range t.times {
+		times = append(times, d)
+	}
+	sum := sumDurations(times)
+	return (sum.Seconds() / 1000) / float64(len(t.times))
 }
 
-func (t *timing) percentile() float64 {
-	return 0
+type durations []time.Duration
+
+func (d durations) Swap(i, j int)      { d[i], d[j] = d[j], d[i] }
+func (d durations) Less(i, j int) bool { return i < j }
+func (d durations) Len() int           { return len(d) }
+
+func (t *timing) percentile(p float64) float64 {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	times := durations{}
+	for _, d := range t.times {
+		times = append(times, d)
+	}
+	sort.Sort(times)
+	index := (p / 100.0) * float64(len(times))
+	percentile := float64(0)
+	i := int(index)
+	if index == float64(int64(index)) {
+		percentile = float64(sumDurations(times[i-1:i+1]).Seconds()/1000) / 2.0
+	} else {
+		percentile = times[i-1].Seconds() / 1000.0
+	}
+	return percentile
 }
 
 func (t *timing) remove(index int64) {
@@ -81,14 +108,66 @@ func (c *counter) value() int64 {
 }
 
 type stats struct {
-	timings  map[string][]timing
-	counters map[string]counter
+	timings  map[string]*timing
+	tMu      *sync.RWMutex
+	counters map[string]*counter
+	cMu      *sync.RWMutex
+	interval time.Duration
 }
 
-func (s *stats) timing() {
-
+func NewStats(interval time.Duration) *stats {
+	return &stats{
+		timings:  make(map[string]*timing),
+		tMu:      new(sync.RWMutex),
+		counters: make(map[string]*counter),
+		cMu:      new(sync.RWMutex),
+		interval: interval,
+	}
 }
 
-func (s *stats) incCounter() {
+func (s *stats) addTiming(key string, d time.Duration) {
+	s.tMu.RLock()
+	t, present := s.timings[key]
+	if !present {
+		t = &timing{times: make(map[int64]time.Duration), mu: new(sync.RWMutex), interval: s.interval}
+		s.tMu.RUnlock()
+		s.tMu.Lock()
+		s.timings[key] = t
+		s.tMu.Unlock()
+		s.tMu.RLock()
+	}
+	defer s.tMu.RUnlock()
+	t.add(d)
+}
 
+func (s *stats) newCounter(key string) *counter {
+	s.cMu.Lock()
+	defer s.cMu.Unlock()
+	c := &counter{interval: s.interval}
+	s.counters[key] = c
+	return c
+}
+
+func (s *stats) increase(key string, value int64) {
+	s.cMu.RLock()
+	c, present := s.counters[key]
+	if !present {
+		s.cMu.RUnlock()
+		c = s.newCounter(key)
+		s.cMu.RLock()
+	}
+	defer s.cMu.RUnlock()
+	c.increase(value)
+}
+
+func (s *stats) decrease(key string, value int64) {
+	s.cMu.RLock()
+	c, present := s.counters[key]
+	if !present {
+		s.cMu.RUnlock()
+		c = s.newCounter(key)
+		s.cMu.RLock()
+	}
+	defer s.cMu.RUnlock()
+	c.decrease(value)
 }
