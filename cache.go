@@ -89,11 +89,10 @@ func (c *cache) addSingle(e *Entry, key [32]byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if _, present := c.entries[e.name]; present {
-		// log or fail...?
-		c.log.Warning("[cache] Overwriting cache entry '%s'", e.name)
-	} else {
-		c.log.Info("[cache] Adding entry for '%s'", e.name)
+		c.log.Warning("[cache] Entry for '%s' already exists in cache", e.name)
+		return
 	}
+	c.log.Info("[cache] Adding entry for '%s'", e.name)
 	c.lookupMap[key] = e
 }
 

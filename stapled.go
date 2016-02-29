@@ -9,17 +9,18 @@ import (
 )
 
 type stapled struct {
-	log                    *Logger
-	clk                    clock.Clock
-	c                      *cache
-	responder              *http.Server
+	log               *Logger
+	clk               clock.Clock
+	c                 *cache
+	responder         *http.Server
+	certFolderWatcher *dirWatcher
+
 	clientTimeout          time.Duration
 	clientBackoff          time.Duration
 	entryMonitorTick       time.Duration
 	upstreamResponders     []string
 	cacheFolder            string
 	dontDieOnStaleResponse bool
-	certFolderWatcher      *dirWatcher
 }
 
 func New(log *Logger, clk clock.Clock, httpAddr string, timeout, backoff, entryMonitorTick time.Duration, responders []string, cacheFolder string, dontDieOnStale bool, certFolder string, entries []*Entry) (*stapled, error) {
@@ -79,7 +80,6 @@ func (s *stapled) checkCertDirectory() {
 }
 
 func (s *stapled) watchCertDirectory() {
-	s.checkCertDirectory()
 	ticker := time.NewTicker(time.Second * 15)
 	for _ = range ticker.C {
 		s.checkCertDirectory()
@@ -88,6 +88,7 @@ func (s *stapled) watchCertDirectory() {
 
 func (s *stapled) Run() error {
 	if s.certFolderWatcher != nil {
+		s.checkCertDirectory()
 		go s.watchCertDirectory()
 	}
 	err := s.responder.ListenAndServe()
