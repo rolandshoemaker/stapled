@@ -6,6 +6,7 @@ package main
 
 import (
 	"crypto/sha256"
+	"encoding/asn1"
 	"fmt"
 	"net/http"
 	"os"
@@ -26,7 +27,7 @@ func (s *stapled) Response(r *ocsp.Request) ([]byte, bool) {
 	e := NewEntry(s.log, s.clk, s.clientTimeout, s.clientBackoff, s.entryMonitorTick)
 	e.serial = r.SerialNumber
 	var err error
-	e.request, err = r.Marshal()
+	e.request, err = asn1.Marshal(r)
 	if err != nil {
 		s.log.Err("Failed to marshal request: %s", err)
 		return nil, false

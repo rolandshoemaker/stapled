@@ -9,6 +9,7 @@ import (
 	"crypto"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/asn1"
 	"encoding/hex"
 	"fmt"
 	"hash"
@@ -316,7 +317,7 @@ func (e *Entry) Init() error {
 		issuerKeyHash,
 		e.serial,
 	}
-	e.request, err = ocspRequest.Marshal()
+	e.request, err = asn1.Marshal(ocspRequest)
 	if err != nil {
 		return err
 	}
