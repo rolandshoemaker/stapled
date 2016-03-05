@@ -1,0 +1,72 @@
+{
+	"ImportPath": "github.com/rolandshoemaker/stapled",
+	"GoVersion": "go1.6",
+	"Packages": [
+		"github.com/jmhodges/clock",
+		"golang.org/x/crypto/ocsp",
+		"golang.org/x/net/context",
+		"gopkg.in/yaml.v2",
+		"github.com/cloudflare/cfssl/log",
+		"github.com/cloudflare/cfssl/ocsp"
+	],
+	"Deps": [
+		{
+			"ImportPath": "github.com/cloudflare/cfssl/crypto/pkcs7",
+			"Comment": "1.1.0-419-gd7d8804",
+			"Rev": "d7d8804ccaacee42dc06209eb53b22588cedb822"
+		},
+		{
+			"ImportPath": "github.com/cloudflare/cfssl/errors",
+			"Comment": "1.1.0-419-gd7d8804",
+			"Rev": "d7d8804ccaacee42dc06209eb53b22588cedb822"
+		},
+		{
+			"ImportPath": "github.com/cloudflare/cfssl/helpers",
+			"Comment": "1.1.0-419-gd7d8804",
+			"Rev": "d7d8804ccaacee42dc06209eb53b22588cedb822"
+		},
+		{
+			"ImportPath": "github.com/cloudflare/cfssl/helpers/derhelpers",
+			"Comment": "1.1.0-419-gd7d8804",
+			"Rev": "d7d8804ccaacee42dc06209eb53b22588cedb822"
+		},
+		{
+			"ImportPath": "github.com/cloudflare/cfssl/log",
+			"Comment": "1.1.0-419-gd7d8804",
+			"Rev": "d7d8804ccaacee42dc06209eb53b22588cedb822"
+		},
+		{
+			"ImportPath": "github.com/cloudflare/cfssl/ocsp",
+			"Comment": "1.1.0-419-gd7d8804",
+			"Rev": "d7d8804ccaacee42dc06209eb53b22588cedb822"
+		},
+		{
+			"ImportPath": "github.com/jmhodges/clock",
+			"Rev": "3c4ebd218625c9364c33db6d39c276d80c3090c6"
+		},
+		{
+			"ImportPath": "golang.org/x/crypto/ocsp",
+			"Rev": "5dc8cb4b8a8eb076cbb5a06bc3b8682c15bdbbd3"
+		},
+		{
+			"ImportPath": "golang.org/x/crypto/pkcs12",
+			"Rev": "5dc8cb4b8a8eb076cbb5a06bc3b8682c15bdbbd3"
+		},
+		{
+			"ImportPath": "golang.org/x/crypto/pkcs12/internal/rc2",
+			"Rev": "5dc8cb4b8a8eb076cbb5a06bc3b8682c15bdbbd3"
+		},
+		{
+			"ImportPath": "golang.org/x/net/context",
+			"Rev": "ce84af2e5bf21582345e478b116afc7d4efaba3d"
+		},
+		{
+			"ImportPath": "gopkg.in/check.v1",
+			"Rev": "11d3bc7aa68e238947792f30573146a3231fc0f1"
+		},
+		{
+			"ImportPath": "gopkg.in/yaml.v2",
+			"Rev": "7ad95dd0798a40da1ccdff6dff35fd177b5edf40"
+		}
+	]
+}
