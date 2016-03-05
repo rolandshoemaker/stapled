@@ -7,9 +7,9 @@ import (
 	"time"
 )
 
-// this entire thing is only really needed if we don't
-// want to use some push system like StatsD (or i guess
-// we could do both...)
+// this entire thing is only really needed if we don't want to
+// use some push framework like StatsD (or i guess there could
+// do both...)
 
 type timing struct {
 	interval     time.Duration
@@ -119,7 +119,7 @@ type stats struct {
 	interval time.Duration
 }
 
-func NewStats(interval time.Duration) *stats {
+func newStats(interval time.Duration) *stats {
 	return &stats{
 		timings:  make(map[string]*timing),
 		tMu:      new(sync.RWMutex),
