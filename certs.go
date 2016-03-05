@@ -34,7 +34,7 @@ func ReadCertificate(filename string) (*x509.Certificate, error) {
 	return ParseCertificate(contents)
 }
 
-func HashNameAndPKI(h hash.Hash, name, pki []byte) ([]byte, []byte, error) {
+func hashNameAndPKI(h hash.Hash, name, pki []byte) ([]byte, []byte, error) {
 	h.Write(name)
 	nameHash := h.Sum(nil)
 	h.Reset()

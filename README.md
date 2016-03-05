@@ -11,3 +11,6 @@ written on the topic by Ryan Sleevi.
 Intended to be easily proxyabe and distributable (and make life at
 least somewhat easier for applications implementing OCSP stapling
 in a less than ideal way).
+
+Requires a version of `x/crypto/ocsp` patched with [this CL](https://go-review.googlesource.com/#/c/19488/)
+to allow marshalling `ocsp.Request`s to DER.

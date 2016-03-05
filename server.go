@@ -1,14 +1,9 @@
-// Logic for serving OCSP responses via HTTP
-// (should probably use a CFSSL responder with
-// a custom Source).
-
 package main
 
 import (
 	"crypto/sha256"
 	"fmt"
 	"net/http"
-	"os"
 
 	cflog "github.com/cloudflare/cfssl/log"
 	cfocsp "github.com/cloudflare/cfssl/ocsp"
@@ -23,6 +18,8 @@ func (s *stapled) Response(r *ocsp.Request) ([]byte, bool) {
 		return nil, false
 	}
 
+	// this should live in cache.go, EntryFromResponse or something...
+	// (although it's already so big :/)
 	e := NewEntry(s.log, s.clk, s.clientTimeout, s.clientBackoff, s.entryMonitorTick)
 	e.serial = r.SerialNumber
 	var err error
@@ -38,18 +35,11 @@ func (s *stapled) Response(r *ocsp.Request) ([]byte, bool) {
 	if s.cacheFolder != "" {
 		e.generateResponseFilename(s.cacheFolder)
 	}
-	err = e.readFromDisk()
+	err = e.Init()
 	if err != nil {
-		if !os.IsNotExist(err) {
-			// log err
-		}
-		err = e.refreshResponse()
-		if err != nil {
-			// log err
-			return nil, false
-		}
+		s.log.Err("Failed to initialize new entry: %s", err)
+		return nil, false
 	}
-	go e.monitor()
 	s.c.addSingle(e, key)
 	return e.response, true
 }
@@ -58,6 +48,7 @@ func (s *stapled) initResponder(httpAddr string, logger *Logger) {
 	cflog.SetLogger(&responderLogger{logger})
 	m := http.StripPrefix("/", cfocsp.NewResponder(s))
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// hack to make monitors that just check / returns a 200 are satisfied
 		if r.Method == "GET" && r.URL.Path == "/" {
 			w.Header().Set("Cache-Control", "max-age=43200") // Cache for 12 hours
 			w.WriteHeader(200)

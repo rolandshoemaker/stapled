@@ -22,7 +22,7 @@ func TestHashNameAndPKI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to read test issuer", err)
 	}
-	nameHash, pkiHash, err := HashNameAndPKI(crypto.SHA1.New(), issuer.RawSubject, issuer.RawSubjectPublicKeyInfo)
+	nameHash, pkiHash, err := hashNameAndPKI(crypto.SHA1.New(), issuer.RawSubject, issuer.RawSubjectPublicKeyInfo)
 	if err != nil {
 		t.Fatalf("Failed to hash subject and public key info: %s", err)
 	}

@@ -33,7 +33,7 @@ func TestCache(t *testing.T) {
 	}
 
 	for _, h := range []crypto.Hash{crypto.SHA1, crypto.SHA256, crypto.SHA384, crypto.SHA512} {
-		nameHash, pkHash, err := HashNameAndPKI(h.New(), issuer.RawSubject, issuer.RawSubjectPublicKeyInfo)
+		nameHash, pkHash, err := hashNameAndPKI(h.New(), issuer.RawSubject, issuer.RawSubjectPublicKeyInfo)
 		if err != nil {
 			t.Fatalf("Failed to hash subject and public key info: %s", err)
 		}
@@ -64,7 +64,7 @@ func TestCache(t *testing.T) {
 	}
 
 	for _, h := range []crypto.Hash{crypto.SHA1, crypto.SHA256, crypto.SHA384, crypto.SHA512} {
-		nameHash, pkHash, err := HashNameAndPKI(h.New(), issuer.RawSubject, issuer.RawSubjectPublicKeyInfo)
+		nameHash, pkHash, err := hashNameAndPKI(h.New(), issuer.RawSubject, issuer.RawSubjectPublicKeyInfo)
 		if err != nil {
 			t.Fatalf("Failed to hash subject and public key info: %s", err)
 		}

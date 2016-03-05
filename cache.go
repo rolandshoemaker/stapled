@@ -1,7 +1,3 @@
-// Logic for reading and writing to and from the cache
-// (should probably have an interface and a default
-// on disk cache + the in-memory one?).
-
 package main
 
 import (
@@ -10,6 +6,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"hash"
 	"io/ioutil"
@@ -32,8 +29,8 @@ import (
 
 type cache struct {
 	log       *Logger
-	entries   map[string]*Entry
-	lookupMap map[[32]byte]*Entry
+	entries   map[string]*Entry   // one-to-one map keyed on name -> entry
+	lookupMap map[[32]byte]*Entry // many-to-one map keyed on sha256 hashed OCSP requests -> entry
 	mu        *sync.RWMutex
 }
 
@@ -42,7 +39,7 @@ func newCache(log *Logger) *cache {
 }
 
 func hashEntry(h hash.Hash, name, pkiBytes []byte, serial *big.Int) ([32]byte, error) {
-	issuerNameHash, issuerKeyHash, err := HashNameAndPKI(h, name, pkiBytes)
+	issuerNameHash, issuerKeyHash, err := hashNameAndPKI(h, name, pkiBytes)
 	if err != nil {
 		return [32]byte{}, err
 	}
@@ -93,6 +90,7 @@ func (c *cache) addSingle(e *Entry, key [32]byte) {
 		return
 	}
 	c.log.Info("[cache] Adding entry for '%s'", e.name)
+	c.entries[e.name] = e
 	c.lookupMap[key] = e
 }
 
@@ -123,7 +121,7 @@ func (c *cache) remove(name string) error {
 	defer c.mu.Unlock()
 	e, present := c.entries[name]
 	if !present {
-		return fmt.Errorf("Entry '%s' is not in the cache", name)
+		return fmt.Errorf("entry '%s' is not in the cache", name)
 	}
 	e.mu.Lock()
 	e.stop <- struct{}{}
@@ -246,6 +244,7 @@ func (e *Entry) loadCertificateInfo(name, serial string) error {
 	return nil
 }
 
+// blergh
 func (e *Entry) FromCertDef(def CertDefinition, globalUpstream []string, globalProxy string, cacheFolder string) error {
 	if def.Issuer != "" {
 		var err error
@@ -302,49 +301,61 @@ func (e *Entry) FromCertDef(def CertDefinition, globalUpstream []string, globalP
 }
 
 func (e *Entry) Init() error {
-	issuerNameHash, issuerKeyHash, err := HashNameAndPKI(
-		crypto.SHA1.New(),
-		e.issuer.RawSubject,
-		e.issuer.RawSubjectPublicKeyInfo,
-	)
-	if err != nil {
-		return err
-	}
-	ocspRequest := &ocsp.Request{
-		crypto.SHA1,
-		issuerNameHash,
-		issuerKeyHash,
-		e.serial,
-	}
-	e.request, err = ocspRequest.Marshal()
-	if err != nil {
-		return err
-	}
-	for i := range e.responders {
-		e.responders[i] = strings.TrimSuffix(e.responders[i], "/")
-	}
-	err = e.readFromDisk()
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	} else if err != nil && os.IsNotExist(err) {
-		err = e.refreshResponse()
+	if e.request == nil {
+		if e.issuer == nil {
+			return errors.New("if request isn't provided issuer must be non-nil")
+		}
+		issuerNameHash, issuerKeyHash, err := hashNameAndPKI(
+			crypto.SHA1.New(),
+			e.issuer.RawSubject,
+			e.issuer.RawSubjectPublicKeyInfo,
+		)
+		if err != nil {
+			return err
+		}
+		ocspRequest := &ocsp.Request{
+			crypto.SHA1,
+			issuerNameHash,
+			issuerKeyHash,
+			e.serial,
+		}
+		e.request, err = ocspRequest.Marshal()
 		if err != nil {
 			return err
 		}
 	}
+	for i := range e.responders {
+		e.responders[i] = strings.TrimSuffix(e.responders[i], "/")
+	}
+	err := e.readFromDisk()
+	if err == nil {
+		go e.monitor()
+		return nil
+	}
+	if !os.IsNotExist(err) {
+		e.err("Failed to read response from disk: %s", err)
+	}
+	err = e.refreshResponse()
+	if err != nil {
+		return err
+	}
+
 	go e.monitor()
 	return nil
 }
 
+// info makes a Info Logger call tagged with the entry name
 func (e *Entry) info(msg string, args ...interface{}) {
 	e.log.Info(fmt.Sprintf("[entry:%s] %s", e.name, msg), args...)
 }
 
+// info makes a Err Logger call tagged with the entry name
 func (e *Entry) err(msg string, args ...interface{}) {
 	e.log.Err(fmt.Sprintf("[entry:%s] %s", e.name, msg), args...)
 }
 
-// writeToDisk assumes the caller holds a lock
+// writeToDisk writes a response to disk. Assumes the
+// caller holds a write lock
 func (e *Entry) writeToDisk() error {
 	tmpName := fmt.Sprintf("%s.tmp", e.responseFilename)
 	err := ioutil.WriteFile(tmpName, e.response, os.ModePerm)
@@ -359,6 +370,8 @@ func (e *Entry) writeToDisk() error {
 	return nil
 }
 
+// readFromDisk attempts to read a response that has been
+// cached on disk
 func (e *Entry) readFromDisk() error {
 	respBytes, err := ioutil.ReadFile(e.responseFilename)
 	if err != nil {
@@ -377,6 +390,8 @@ func (e *Entry) readFromDisk() error {
 	return nil
 }
 
+// updateResponse updates the actual response body/metadata
+// stored in the entry
 func (e *Entry) updateResponse(eTag string, maxAge int, resp *ocsp.Response, respBytes []byte, write bool) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -397,11 +412,14 @@ func (e *Entry) updateResponse(eTag string, maxAge int, resp *ocsp.Response, res
 	return nil
 }
 
+// refreshResponse fetches and verifies a response and replaces
+// the current response if it is valid and newer
 func (e *Entry) refreshResponse() error {
-	e.info("Attempting to refresh response")
+	responder := randomResponder(e.responders)
+	e.info("Fetching response from %s", responder)
 	ctx, cancel := context.WithTimeout(context.Background(), e.timeout)
 	defer cancel()
-	resp, respBytes, eTag, maxAge, err := e.fetchResponse(ctx, randomResponder(e.responders))
+	resp, respBytes, eTag, maxAge, err := e.fetchResponse(ctx, responder)
 	if err != nil {
 		return err
 	}
@@ -409,7 +427,7 @@ func (e *Entry) refreshResponse() error {
 	e.mu.RLock()
 	if resp == nil || bytes.Compare(respBytes, e.response) == 0 {
 		e.mu.RUnlock()
-		e.info("Response has not changed since last sync")
+		e.info("Response hasn't changed since last sync")
 		e.updateResponse(eTag, maxAge, nil, nil, true)
 		return nil
 	}
@@ -425,6 +443,9 @@ func (e *Entry) refreshResponse() error {
 
 var instantly = time.Duration(0)
 
+// timeToUpdate checks if a current entry is in it's update
+// window and returns either nil if it isn't or a random duration
+// after which the entry should be refreshed
 func (e *Entry) timeToUpdate() *time.Duration {
 	now := e.clk.Now()
 	e.mu.RLock()
@@ -442,12 +463,16 @@ func (e *Entry) timeToUpdate() *time.Duration {
 		}
 	}
 
+	// update window is last quarter of NextUpdate - ThisUpdate
+	// TODO: support using NextPublish instead of ThisUpdate if provided
+	// in responses
 	windowSize := e.nextUpdate.Sub(e.thisUpdate) / 4
 	updateWindowStarts := e.nextUpdate.Add(-windowSize)
-
 	if updateWindowStarts.After(now) {
 		return nil
 	}
+
+	// randomly pick time in update window
 	updateTime := updateWindowStarts.Add(time.Second * time.Duration(mrand.Intn(int(windowSize.Seconds()))))
 	if updateTime.Before(now) {
 		e.info("Update time was in the past, updating immediately")
