@@ -49,6 +49,8 @@ func hashEntry(h hash.Hash, name, pkiBytes []byte, serial *big.Int) ([32]byte, e
 
 func allHashes(e *Entry) ([][32]byte, error) {
 	results := [][32]byte{}
+	// these should be configurable in case people don't care about
+	// supporting all of these hash algs
 	for _, h := range []crypto.Hash{crypto.SHA1, crypto.SHA256, crypto.SHA384, crypto.SHA512} {
 		hashed, err := hashEntry(h.New(), e.issuer.RawSubject, e.issuer.RawSubjectPublicKeyInfo, e.serial)
 		if err != nil {

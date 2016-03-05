@@ -7,6 +7,10 @@ import (
 	"time"
 )
 
+// this entire thing is only really needed if we don't
+// want to use some push system like StatsD (or i guess
+// we could do both...)
+
 type timing struct {
 	interval     time.Duration
 	times        map[int64]time.Duration

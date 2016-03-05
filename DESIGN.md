@@ -50,6 +50,18 @@ contacted. If a new response is received the entry will be
 updated otherwise the process is repeated (more detail
 bellow).
 
+### Initialization
+
+Entries can be added to the cache in three ways
+
+1. from definitions in the configuration file
+2. from certificates in a watched directory
+3. from passing requests to upstream responders/`stapled`s
+
+Currently this is extremely messy and needs to be better
+thought through. Some code is duplicated/located outside
+where it probably should.
+
 ### Choosing when to refresh
 
 After a entry is added to the cache it is checked using the
@@ -57,7 +69,7 @@ algorithm outlined below at a configurable interval to decide
 whether a upstream source should be contacted to check for a new
 response.
 
-> Largely based on Microsoft's [CryptoAPI Pre-Fetching behaviour](https://technet.microsoft.com/en-us/library/ee619723(v=ws.10).aspx)
+> Largely based on Microsoft's [CryptoAPI pre-fetching behaviour](https://technet.microsoft.com/en-us/library/ee619723(v=ws.10).aspx)
 
 Variables:
 * `LastSync` - last time response was fetched
@@ -73,6 +85,20 @@ Variables:
    randomly select a a time between then and `NextUpdate`
    1. If the time is before now immediately refresh the response
    2. If the time is after now wait until then to refresh the response 
+
+### On-Disk cache
+
+If `cache-folder` is set the in-memory cache will be mirrored
+on disk (one-way). These responses can also be used to seed
+the cache on initial start-up.
+
+When a entry in the cache is updated and the response changes
+it will be written to a temporary file next to the existing
+response file and then renamed to overwrite it. This should
+be *atomic-ish* on most operating systems.
+
+1. Write `example.ocsp.tmp`
+2. Rename `example.ocsp.tmp` to `example.ocsp`
 
 ## Interaction
 
@@ -98,21 +124,7 @@ reads responses from the cache. The Issuer name and public
 key hashes and serial are extracted from requests and hashed
 to use as the key in the lookup table.
 
-### On-Disk cache
-
-If `cache-folder` is set the in-memory cache will be mirrored
-on disk (one-way). These responses can also be used to seed
-the cache on initial start-up.
-
-When a entry in the cache is updated and the response changes
-it will be written to a temporary file next to the existing
-response file and then renamed to overwrite it. This should
-be *atomic-ish* on most operating systems.
-
-1. Write `example.ocsp.tmp`
-2. Rename `example.ocsp.tmp` to `example.ocsp`
-
-## Proxying / Distribution
+### Proxying / Distribution
 
 Since `stapled` acts as both a OCSP client and responder it can be
 easily chained simply by specifying another instance as the upstream
