@@ -30,10 +30,10 @@ var idPKIXOCSPBasic = asn1.ObjectIdentifier([]int{1, 3, 6, 1, 5, 5, 7, 48, 1, 1}
 type ResponseStatus int
 
 const (
-	Success           ResponseStatus = 0
-	Malformed         ResponseStatus = 1
-	InternalError     ResponseStatus = 2
-	TryLater          ResponseStatus = 3
+	Success       ResponseStatus = 0
+	Malformed     ResponseStatus = 1
+	InternalError ResponseStatus = 2
+	TryLater      ResponseStatus = 3
 	// Status code four is ununsed in OCSP. See
 	// https://tools.ietf.org/html/rfc6960#section-4.2.1
 	SignatureRequired ResponseStatus = 5
@@ -266,6 +266,15 @@ func getHashAlgorithmFromOID(target asn1.ObjectIdentifier) crypto.Hash {
 	return crypto.Hash(0)
 }
 
+func getOIDFromHashAlgorithm(target crypto.Hash) asn1.ObjectIdentifier {
+	for hash, oid := range hashOIDs {
+		if hash == target {
+			return oid
+		}
+	}
+	return nil
+}
+
 // This is the exposed reflection of the internal OCSP structures.
 
 // The status values that can be expressed in OCSP.  See RFC 6960.
@@ -303,6 +312,32 @@ type Request struct {
 	IssuerNameHash []byte
 	IssuerKeyHash  []byte
 	SerialNumber   *big.Int
+}
+
+// Marshal marshals the OCSP request to ASN.1 DER encoded form.
+func (req *Request) Marshal() ([]byte, error) {
+	hashAlg := getOIDFromHashAlgorithm(req.HashAlgorithm)
+	if hashAlg == nil {
+		return nil, errors.New("Unknown hash algorithm")
+	}
+	return asn1.Marshal(ocspRequest{
+		tbsRequest{
+			Version: 0,
+			RequestList: []request{
+				{
+					Cert: certID{
+						pkix.AlgorithmIdentifier{
+							Algorithm:  hashAlg,
+							Parameters: asn1.RawValue{Tag: 5 /* ASN.1 NULL */},
+						},
+						req.IssuerNameHash,
+						req.IssuerKeyHash,
+						req.SerialNumber,
+					},
+				},
+			},
+		},
+	})
 }
 
 // Response represents an OCSP response containing a single SingleResponse. See

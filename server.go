@@ -18,16 +18,15 @@ func (s *stapled) Response(r *ocsp.Request) ([]byte, bool) {
 		return nil, false
 	}
 
-	// this should live in cache.go, EntryFromResponse or something...
-	// (although it's already so big :/)
+	// this should live somewhere else
 	e := NewEntry(s.log, s.clk, s.clientTimeout, s.clientBackoff, s.entryMonitorTick)
 	e.serial = r.SerialNumber
 	var err error
-	// e.request, err = r.Marshal()
-	// if err != nil {
-	// 	s.log.Err("Failed to marshal request: %s", err)
-	// 	return nil, false
-	// }
+	e.request, err = r.Marshal()
+	if err != nil {
+		s.log.Err("Failed to marshal request: %s", err)
+		return nil, false
+	}
 	e.responders = s.upstreamResponders
 	serialHash := sha256.Sum256(e.serial.Bytes())
 	key := sha256.Sum256(append(append(r.IssuerNameHash, r.IssuerKeyHash...), serialHash[:]...))

@@ -307,24 +307,21 @@ func (e *Entry) Init() error {
 		if e.issuer == nil {
 			return errors.New("if request isn't provided issuer must be non-nil")
 		}
-		// issuerNameHash, issuerKeyHash, err := hashNameAndPKI(
-		// 	crypto.SHA1.New(),
-		// 	e.issuer.RawSubject,
-		// 	e.issuer.RawSubjectPublicKeyInfo,
-		// )
-		// if err != nil {
-		// 	return err
-		// }
-		// ocspRequest := &ocsp.Request{
-		// 	crypto.SHA1,
-		// 	issuerNameHash,
-		// 	issuerKeyHash,
-		// 	e.serial,
-		// }
-		leafWrapper := &x509.Certificate{SerialNumber: e.serial}
-		// e.request, err = ocspRequest.Marshal()
-		var err error
-		e.request, err = ocsp.CreateRequest(leafWrapper, e.issuer, nil)
+		issuerNameHash, issuerKeyHash, err := hashNameAndPKI(
+			crypto.SHA1.New(),
+			e.issuer.RawSubject,
+			e.issuer.RawSubjectPublicKeyInfo,
+		)
+		if err != nil {
+			return err
+		}
+		ocspRequest := &ocsp.Request{
+			crypto.SHA1,
+			issuerNameHash,
+			issuerKeyHash,
+			e.serial,
+		}
+		e.request, err = ocspRequest.Marshal()
 		if err != nil {
 			return err
 		}
