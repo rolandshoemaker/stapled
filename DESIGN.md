@@ -78,13 +78,12 @@ Variables:
 * (if available) `NextPublish` - optional OCSP extension
 * (if available) `max-age` - cache property
 
-1. If now is after `NextUpdate` immediately refresh response
+1. If now is after `NextUpdate` refresh response
 2. If `max-age` is more than zero and now is after `LastSync + max-age`
-   immediately refresh response
+   refresh response
 3. If now is after `(NextUpdate - ThisUpdate) / 4`, or `NextPublish`,
    randomly select a a time between then and `NextUpdate`
-   1. If the time is before now immediately refresh the response
-   2. If the time is after now wait until then to refresh the response 
+4. If the time is before now refresh the response
 
 ### On-Disk cache
 

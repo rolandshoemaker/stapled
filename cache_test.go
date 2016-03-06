@@ -6,13 +6,14 @@ import (
 	"math/big"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jmhodges/clock"
 	"golang.org/x/crypto/ocsp"
 )
 
 func TestCache(t *testing.T) {
-	c := newCache(NewLogger("", "", 10, clock.Default()))
+	c := newCache(NewLogger("", "", 10, clock.Default()), time.Minute)
 
 	issuer, err := ReadCertificate("testdata/test-issuer.der")
 	if err != nil {
@@ -24,7 +25,6 @@ func TestCache(t *testing.T) {
 		serial:   big.NewInt(1337),
 		issuer:   issuer,
 		response: []byte{5, 0, 1},
-		stop:     make(chan struct{}, 1),
 	}
 
 	err = c.addMulti(e)
@@ -57,10 +57,6 @@ func TestCache(t *testing.T) {
 	err = c.remove("test.der")
 	if err != nil {
 		t.Fatalf("Failed to remove entry from cache: %s", err)
-	}
-
-	if len(e.stop) != 1 {
-		t.Fatalf("Failed to send a signal on the monitor stop channel")
 	}
 
 	for _, h := range []crypto.Hash{crypto.SHA1, crypto.SHA256, crypto.SHA384, crypto.SHA512} {
