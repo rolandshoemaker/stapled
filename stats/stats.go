@@ -1,4 +1,4 @@
-package main
+package stats
 
 import (
 	"sort"
@@ -111,7 +111,7 @@ func (c *counter) value() int64 {
 	return atomic.LoadInt64(&c.counter)
 }
 
-type stats struct {
+type Stats struct {
 	timings  map[string]*timing
 	tMu      *sync.RWMutex
 	counters map[string]*counter
@@ -119,8 +119,8 @@ type stats struct {
 	interval time.Duration
 }
 
-func newStats(interval time.Duration) *stats {
-	return &stats{
+func New(interval time.Duration) *Stats {
+	return &Stats{
 		timings:  make(map[string]*timing),
 		tMu:      new(sync.RWMutex),
 		counters: make(map[string]*counter),
@@ -129,7 +129,7 @@ func newStats(interval time.Duration) *stats {
 	}
 }
 
-func (s *stats) addTiming(key string, d time.Duration) {
+func (s *Stats) AddTiming(key string, d time.Duration) {
 	s.tMu.RLock()
 	t, present := s.timings[key]
 	if !present {
@@ -144,7 +144,7 @@ func (s *stats) addTiming(key string, d time.Duration) {
 	t.add(d)
 }
 
-func (s *stats) newCounter(key string) *counter {
+func (s *Stats) newCounter(key string) *counter {
 	s.cMu.Lock()
 	defer s.cMu.Unlock()
 	c := &counter{interval: s.interval}
@@ -152,7 +152,7 @@ func (s *stats) newCounter(key string) *counter {
 	return c
 }
 
-func (s *stats) increase(key string, value int64) {
+func (s *Stats) Increase(key string, value int64) {
 	s.cMu.RLock()
 	c, present := s.counters[key]
 	if !present {
@@ -164,7 +164,7 @@ func (s *stats) increase(key string, value int64) {
 	c.increase(value)
 }
 
-func (s *stats) decrease(key string, value int64) {
+func (s *Stats) Decrease(key string, value int64) {
 	s.cMu.RLock()
 	c, present := s.counters[key]
 	if !present {
