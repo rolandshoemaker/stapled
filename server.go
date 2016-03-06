@@ -19,7 +19,7 @@ func (s *stapled) Response(r *ocsp.Request) ([]byte, bool) {
 	}
 
 	// this should live somewhere else
-	e := NewEntry(s.log, s.clk, s.clientTimeout, s.clientBackoff, s.entryMonitorTick)
+	e := NewEntry(s.log, s.clk, s.clientTimeout, s.clientBackoff)
 	e.serial = r.SerialNumber
 	var err error
 	e.request, err = r.Marshal()

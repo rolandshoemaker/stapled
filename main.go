@@ -50,7 +50,7 @@ func main() {
 	logger.Info("Loading definitions")
 	entries := []*Entry{}
 	for _, def := range config.Definitions.Certificates {
-		e := NewEntry(logger, clk, timeout, baseBackoff, 1*time.Minute)
+		e := NewEntry(logger, clk, timeout, baseBackoff)
 		err = e.FromCertDef(def, config.Fetcher.UpstreamResponders, config.Fetcher.Proxy, config.Disk.CacheFolder)
 		if err != nil {
 			logger.Err("Failed to populate entry: %s", err)

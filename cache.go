@@ -34,8 +34,10 @@ type cache struct {
 	mu        *sync.RWMutex
 }
 
-func newCache(log *Logger) *cache {
-	return &cache{log, make(map[string]*Entry), make(map[[32]byte]*Entry), new(sync.RWMutex)}
+func newCache(log *Logger, monitorTick time.Duration) *cache {
+	c := &cache{log, make(map[string]*Entry), make(map[[32]byte]*Entry), new(sync.RWMutex)}
+	go c.monitor(monitorTick)
+	return c
 }
 
 func hashEntry(h hash.Hash, name, pkiBytes []byte, serial *big.Int) ([32]byte, error) {
@@ -126,7 +128,6 @@ func (c *cache) remove(name string) error {
 		return fmt.Errorf("entry '%s' is not in the cache", name)
 	}
 	e.mu.Lock()
-	e.stop <- struct{}{}
 	delete(c.entries, name)
 	hashes, err := allHashes(e)
 	if err != nil {
@@ -139,11 +140,32 @@ func (c *cache) remove(name string) error {
 	return nil
 }
 
+func (c *cache) monitor(tick time.Duration) {
+	ticker := time.NewTicker(tick)
+	for {
+		select {
+		case <-ticker.C:
+			c.mu.RLock()
+			defer c.mu.RUnlock()
+			for _, entry := range c.entries {
+				if entry.timeToUpdate() {
+					go func() {
+						err := entry.refreshResponse()
+						if err != nil {
+							entry.log.Err("Failed to refresh response: %s", err)
+						}
+					}()
+				}
+			}
+		}
+	}
+}
+
 type Entry struct {
-	name        string
-	monitorTick time.Duration
-	log         *Logger
-	clk         clock.Clock
+	name     string
+	log      *Logger
+	clk      clock.Clock
+	lastSync time.Time
 
 	// cert related
 	serial *big.Int
@@ -157,7 +179,6 @@ type Entry struct {
 	request     []byte
 
 	// response related
-	lastSync         time.Time
 	maxAge           time.Duration
 	eTag             string
 	response         []byte
@@ -165,11 +186,10 @@ type Entry struct {
 	nextUpdate       time.Time
 	thisUpdate       time.Time
 
-	stop chan struct{}
-	mu   *sync.RWMutex
+	mu *sync.RWMutex
 }
 
-func NewEntry(log *Logger, clk clock.Clock, timeout, baseBackoff, monitorTick time.Duration) *Entry {
+func NewEntry(log *Logger, clk clock.Clock, timeout, baseBackoff time.Duration) *Entry {
 	return &Entry{
 		log:         log,
 		clk:         clk,
@@ -177,8 +197,6 @@ func NewEntry(log *Logger, clk clock.Clock, timeout, baseBackoff, monitorTick ti
 		timeout:     timeout,
 		baseBackoff: baseBackoff,
 		mu:          new(sync.RWMutex),
-		monitorTick: monitorTick,
-		stop:        make(chan struct{}, 1),
 	}
 }
 
@@ -331,7 +349,6 @@ func (e *Entry) Init() error {
 	}
 	err := e.readFromDisk()
 	if err == nil {
-		go e.monitor()
 		return nil
 	}
 	if !os.IsNotExist(err) {
@@ -342,7 +359,6 @@ func (e *Entry) Init() error {
 		return err
 	}
 
-	go e.monitor()
 	return nil
 }
 
@@ -445,23 +461,22 @@ func (e *Entry) refreshResponse() error {
 
 var instantly = time.Duration(0)
 
-// timeToUpdate checks if a current entry is in it's update
-// window and returns either nil if it isn't or a random duration
-// after which the entry should be refreshed
-func (e *Entry) timeToUpdate() *time.Duration {
+// timeToUpdate checks if a current entry should be refreshed
+// because cache parameters expired or it is in it's update window
+func (e *Entry) timeToUpdate() bool {
 	now := e.clk.Now()
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	// no response or nextUpdate is in the past
 	if e.response == nil || e.nextUpdate.Before(now) {
 		e.info("Stale response, updating immediately")
-		return &instantly
+		return true
 	}
 	if e.maxAge > 0 {
 		// cache max age has expired
 		if e.lastSync.Add(e.maxAge).Before(now) {
 			e.info("max-age has expired, updating immediately")
-			return &instantly
+			return true
 		}
 	}
 
@@ -471,34 +486,14 @@ func (e *Entry) timeToUpdate() *time.Duration {
 	windowSize := e.nextUpdate.Sub(e.thisUpdate) / 4
 	updateWindowStarts := e.nextUpdate.Add(-windowSize)
 	if updateWindowStarts.After(now) {
-		return nil
+		return false
 	}
 
 	// randomly pick time in update window
 	updateTime := updateWindowStarts.Add(time.Second * time.Duration(mrand.Intn(int(windowSize.Seconds()))))
 	if updateTime.Before(now) {
-		e.info("Update time was in the past, updating immediately")
-		return &instantly
+		e.info("Time to update")
+		return true
 	}
-	updateIn := updateTime.Sub(now)
-	e.info("Updating response in %s", humanDuration(updateIn))
-	return &updateIn
-}
-
-func (e *Entry) monitor() {
-	ticker := time.NewTicker(e.monitorTick)
-	for {
-		select {
-		case <-e.stop:
-			return
-		case <-ticker.C:
-			if updateIn := e.timeToUpdate(); updateIn != nil {
-				e.clk.Sleep(*updateIn)
-				err := e.refreshResponse()
-				if err != nil {
-					e.err("Failed to update entry: %s", err)
-				}
-			}
-		}
-	}
+	return false
 }

@@ -23,15 +23,14 @@ type stapled struct {
 	dontDieOnStaleResponse bool
 }
 
-func New(log *Logger, clk clock.Clock, httpAddr string, timeout, backoff, entryMonitorTick time.Duration, responders []string, cacheFolder string, dontDieOnStale bool, certFolder string, entries []*Entry) (*stapled, error) {
-	c := newCache(log)
+func New(log *Logger, clk clock.Clock, httpAddr string, timeout, backoff, monitorTick time.Duration, responders []string, cacheFolder string, dontDieOnStale bool, certFolder string, entries []*Entry) (*stapled, error) {
+	c := newCache(log, monitorTick)
 	s := &stapled{
 		log:                    log,
 		clk:                    clk,
 		c:                      c,
 		clientTimeout:          timeout,
 		clientBackoff:          backoff,
-		entryMonitorTick:       entryMonitorTick,
 		cacheFolder:            cacheFolder,
 		dontDieOnStaleResponse: dontDieOnStale,
 		upstreamResponders:     responders,
@@ -55,7 +54,7 @@ func (s *stapled) checkCertDirectory() {
 	}
 	for _, a := range added {
 		// create entry + add to cache
-		e := NewEntry(s.log, s.clk, s.clientTimeout, s.clientBackoff, s.entryMonitorTick)
+		e := NewEntry(s.log, s.clk, s.clientTimeout, s.clientBackoff)
 		err = e.loadCertificate(a)
 		if err != nil {
 			s.log.Err("Failed to load new certificate '%s': %s", a, err)
