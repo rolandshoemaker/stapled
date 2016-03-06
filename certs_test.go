@@ -20,7 +20,7 @@ func TestReadCertificate(t *testing.T) {
 func TestHashNameAndPKI(t *testing.T) {
 	issuer, err := ReadCertificate("testdata/test-issuer.der")
 	if err != nil {
-		t.Fatalf("Failed to read test issuer", err)
+		t.Fatalf("Failed to read test issuer: %s", err)
 	}
 	nameHash, pkiHash, err := hashNameAndPKI(crypto.SHA1.New(), issuer.RawSubject, issuer.RawSubjectPublicKeyInfo)
 	if err != nil {
