@@ -33,10 +33,6 @@ echo "Adding GOPATH bin/ to PATH"
 export PATH=$PATH:$GOPATH/bin
 echo 'export PATH=$PATH:$HOME/workspace/bin' >> ~/.bashrc
 
-echo "Enabling GO15VENDOREXPERIMENT"
-export GO15VENDOREXPERIMENT=1
-echo 'export GO15VENDOREXPERIMENT=1' >> ~/.bashrc
-
 echo "Creating project structure in GOPATH"
 mkdir -p "$PROJECT_ROOT"
 

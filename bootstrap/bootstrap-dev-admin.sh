@@ -13,12 +13,12 @@ set -e
 
 ARCH=amd64
 OS=linux
-VERSION=1.5.3
+VERSION=1.6
 
 # This should be changed when $ARCH, $OS, $VERSION are updated. If there is 
 # a SHA1 mismatch within a semantic version increase it merits investigation
 # before changing the EXPECTED_SHA1
-EXPECTED_SHA1=c5377eca4837968d043b681f00a852a262f0f5f6
+EXPECTED_SHA1=01a6a28dbe31a53103b600979bbbbd63a8104456
 
 # These should remain fixed unless Go hosting changes significantly
 GODIST=https://storage.googleapis.com/golang/
