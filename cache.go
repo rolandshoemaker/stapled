@@ -31,11 +31,15 @@ type cache struct {
 	log       *Logger
 	entries   map[string]*Entry   // one-to-one map keyed on name -> entry
 	lookupMap map[[32]byte]*Entry // many-to-one map keyed on sha256 hashed OCSP requests -> entry
-	mu        *sync.RWMutex
+	mu        sync.RWMutex
 }
 
 func newCache(log *Logger, monitorTick time.Duration) *cache {
-	c := &cache{log, make(map[string]*Entry), make(map[[32]byte]*Entry), new(sync.RWMutex)}
+	c := &cache{
+		log:       log,
+		entries:   make(map[string]*Entry),
+		lookupMap: make(map[[32]byte]*Entry),
+	}
 	go c.monitor(monitorTick)
 	return c
 }
@@ -142,21 +146,11 @@ func (c *cache) remove(name string) error {
 
 func (c *cache) monitor(tick time.Duration) {
 	ticker := time.NewTicker(tick)
-	for {
-		select {
-		case <-ticker.C:
-			c.mu.RLock()
-			defer c.mu.RUnlock()
-			for _, entry := range c.entries {
-				if entry.timeToUpdate() {
-					go func() {
-						err := entry.refreshResponse()
-						if err != nil {
-							entry.log.Err("Failed to refresh response: %s", err)
-						}
-					}()
-				}
-			}
+	for range ticker.C {
+		c.mu.RLock()
+		defer c.mu.RUnlock()
+		for _, entry := range c.entries {
+			go entry.refreshAndLog()
 		}
 	}
 }
@@ -433,6 +427,9 @@ func (e *Entry) updateResponse(eTag string, maxAge int, resp *ocsp.Response, res
 // refreshResponse fetches and verifies a response and replaces
 // the current response if it is valid and newer
 func (e *Entry) refreshResponse() error {
+	if !e.timeToUpdate() {
+		return nil
+	}
 	responder := randomResponder(e.responders)
 	e.info("Fetching response from %s", responder)
 	ctx, cancel := context.WithTimeout(context.Background(), e.timeout)
@@ -459,7 +456,15 @@ func (e *Entry) refreshResponse() error {
 	return nil
 }
 
-var instantly = time.Duration(0)
+// refreshAndLog is a small wrapper around refreshResponse
+// for when a caller wants to run it in a goroutine and doesn't
+// want to handle the returned error itself
+func (e *Entry) refreshAndLog() {
+	err := e.refreshResponse()
+	if err != nil {
+		e.err("Failed to refresh response", err)
+	}
+}
 
 // timeToUpdate checks if a current entry should be refreshed
 // because cache parameters expired or it is in it's update window
