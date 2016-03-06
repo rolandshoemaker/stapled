@@ -8,6 +8,8 @@ import (
 	cflog "github.com/cloudflare/cfssl/log"
 	cfocsp "github.com/cloudflare/cfssl/ocsp"
 	"golang.org/x/crypto/ocsp"
+
+	"github.com/rolandshoemaker/stapled/log"
 )
 
 func (s *stapled) Response(r *ocsp.Request) ([]byte, bool) {
@@ -31,10 +33,7 @@ func (s *stapled) Response(r *ocsp.Request) ([]byte, bool) {
 	serialHash := sha256.Sum256(e.serial.Bytes())
 	key := sha256.Sum256(append(append(r.IssuerNameHash, r.IssuerKeyHash...), serialHash[:]...))
 	e.name = fmt.Sprintf("%X", key)
-	if s.cacheFolder != "" {
-		e.generateResponseFilename(s.cacheFolder)
-	}
-	err = e.Init()
+	err = e.Init(s.stableBackings)
 	if err != nil {
 		s.log.Err("Failed to initialize new entry: %s", err)
 		return nil, false
@@ -43,8 +42,8 @@ func (s *stapled) Response(r *ocsp.Request) ([]byte, bool) {
 	return e.response, true
 }
 
-func (s *stapled) initResponder(httpAddr string, logger *Logger) {
-	cflog.SetLogger(&responderLogger{logger})
+func (s *stapled) initResponder(httpAddr string, logger *log.Logger) {
+	cflog.SetLogger(&log.ResponderLogger{logger})
 	m := http.StripPrefix("/", cfocsp.NewResponder(s))
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// hack to make monitors that just check / returns a 200 are satisfied

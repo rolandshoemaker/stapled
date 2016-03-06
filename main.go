@@ -8,6 +8,9 @@ import (
 
 	"github.com/jmhodges/clock"
 	"gopkg.in/yaml.v2"
+
+	"github.com/rolandshoemaker/stapled/log"
+	"github.com/rolandshoemaker/stapled/stableCache"
 )
 
 func main() {
@@ -26,7 +29,7 @@ func main() {
 	}
 
 	clk := clock.Default()
-	logger := NewLogger(config.Syslog.Network, config.Syslog.Addr, config.Syslog.StdoutLevel, clk)
+	logger := log.NewLogger(config.Syslog.Network, config.Syslog.Addr, config.Syslog.StdoutLevel, clk)
 
 	baseBackoff := time.Second * time.Duration(10)
 	timeout := time.Second * time.Duration(10)
@@ -47,16 +50,21 @@ func main() {
 		timeout = time.Second * time.Duration(timeoutSeconds)
 	}
 
+	stableBackings := []stableCache.Cache{}
+	if config.Disk.CacheFolder != "" {
+		stableBackings = append(stableBackings, stableCache.NewDisk(logger, clk, config.Disk.CacheFolder))
+	}
+
 	logger.Info("Loading definitions")
 	entries := []*Entry{}
 	for _, def := range config.Definitions.Certificates {
 		e := NewEntry(logger, clk, timeout, baseBackoff)
-		err = e.FromCertDef(def, config.Fetcher.UpstreamResponders, config.Fetcher.Proxy, config.Disk.CacheFolder)
+		err = e.FromCertDef(def, config.Fetcher.UpstreamResponders, config.Fetcher.Proxy)
 		if err != nil {
 			logger.Err("Failed to populate entry: %s", err)
 			os.Exit(1)
 		}
-		err = e.Init()
+		err = e.Init(stableBackings)
 		if err != nil {
 			logger.Err("Failed to initialize entry: %s", err)
 			os.Exit(1)
@@ -73,10 +81,10 @@ func main() {
 		baseBackoff,
 		1*time.Minute,
 		config.Fetcher.UpstreamResponders,
-		config.Disk.CacheFolder,
 		config.DontDieOnStaleResponse,
 		config.Definitions.CertWatchFolder,
 		entries,
+		stableBackings,
 	)
 	if err != nil {
 		logger.Err("Failed to initialize stapled: %s", err)

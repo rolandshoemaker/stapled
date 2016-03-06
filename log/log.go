@@ -1,4 +1,4 @@
-package main
+package log
 
 import (
 	"fmt"
@@ -89,46 +89,46 @@ func (log *Logger) Notice(msg string, args ...interface{}) {
 	log.logAtLevel(syslog.LOG_NOTICE, fmt.Sprintf(msg, args...))
 }
 
-type responderLogger struct {
-	l *Logger
+type ResponderLogger struct {
+	Log *Logger
 }
 
-func (rl *responderLogger) Alert(msg string) error {
-	rl.l.Alert("[responder] " + msg)
+func (rl *ResponderLogger) Alert(msg string) error {
+	rl.Log.Alert("[responder] " + msg)
 	return nil
 }
 
-func (rl *responderLogger) Crit(msg string) error {
-	rl.l.Crit("[responder] " + msg)
+func (rl *ResponderLogger) Crit(msg string) error {
+	rl.Log.Crit("[responder] " + msg)
 	return nil
 }
 
-func (rl *responderLogger) Debug(msg string) error {
-	rl.l.Debug("[responder] " + msg)
+func (rl *ResponderLogger) Debug(msg string) error {
+	rl.Log.Debug("[responder] " + msg)
 	return nil
 }
 
-func (rl *responderLogger) Emerg(msg string) error {
-	rl.l.Emerg("[responder] " + msg)
+func (rl *ResponderLogger) Emerg(msg string) error {
+	rl.Log.Emerg("[responder] " + msg)
 	return nil
 }
 
-func (rl *responderLogger) Err(msg string) error {
-	rl.l.Err("[responder] " + msg)
+func (rl *ResponderLogger) Err(msg string) error {
+	rl.Log.Err("[responder] " + msg)
 	return nil
 }
 
-func (rl *responderLogger) Info(msg string) error {
-	rl.l.Info("[responder] " + msg)
+func (rl *ResponderLogger) Info(msg string) error {
+	rl.Log.Info("[responder] " + msg)
 	return nil
 }
 
-func (rl *responderLogger) Warning(msg string) error {
-	rl.l.Warning("[responder] " + msg)
+func (rl *ResponderLogger) Warning(msg string) error {
+	rl.Log.Warning("[responder] " + msg)
 	return nil
 }
 
-func (rl *responderLogger) Notice(msg string) error {
-	rl.l.Notice("[responder] " + msg)
+func (rl *ResponderLogger) Notice(msg string) error {
+	rl.Log.Notice("[responder] " + msg)
 	return nil
 }

@@ -6,35 +6,38 @@ import (
 	"time"
 
 	"github.com/jmhodges/clock"
+
+	"github.com/rolandshoemaker/stapled/log"
+	"github.com/rolandshoemaker/stapled/stableCache"
 )
 
 type stapled struct {
-	log               *Logger
+	log               *log.Logger
 	clk               clock.Clock
 	c                 *cache
 	responder         *http.Server
 	certFolderWatcher *dirWatcher
+	stableBackings    []stableCache.Cache
 
 	clientTimeout          time.Duration
 	clientBackoff          time.Duration
 	entryMonitorTick       time.Duration
 	upstreamResponders     []string
-	cacheFolder            string
 	dontDieOnStaleResponse bool
 }
 
-func New(log *Logger, clk clock.Clock, httpAddr string, timeout, backoff, monitorTick time.Duration, responders []string, cacheFolder string, dontDieOnStale bool, certFolder string, entries []*Entry) (*stapled, error) {
-	c := newCache(log, monitorTick)
+func New(log *log.Logger, clk clock.Clock, httpAddr string, timeout, backoff, monitorTick time.Duration, responders []string, dontDieOnStale bool, certFolder string, entries []*Entry, stableBackings []stableCache.Cache) (*stapled, error) {
+	c := newCache(log, monitorTick, stableBackings)
 	s := &stapled{
 		log:                    log,
 		clk:                    clk,
 		c:                      c,
 		clientTimeout:          timeout,
 		clientBackoff:          backoff,
-		cacheFolder:            cacheFolder,
 		dontDieOnStaleResponse: dontDieOnStale,
 		upstreamResponders:     responders,
 		certFolderWatcher:      newDirWatcher(certFolder),
+		stableBackings:         stableBackings,
 	}
 	// add entries to cache
 	for _, e := range entries {
@@ -60,10 +63,7 @@ func (s *stapled) checkCertDirectory() {
 			s.log.Err("Failed to load new certificate '%s': %s", a, err)
 			continue
 		}
-		if s.cacheFolder != "" {
-			e.generateResponseFilename(s.cacheFolder)
-		}
-		err = e.Init()
+		err = e.Init(s.c.StableBackings)
 		if err != nil {
 			s.log.Err("Failed to initialize entry for new certificate '%s': %s", a, err)
 			continue

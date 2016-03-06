@@ -15,8 +15,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -25,20 +23,26 @@ import (
 	"github.com/jmhodges/clock"
 	"golang.org/x/crypto/ocsp"
 	"golang.org/x/net/context"
+
+	"github.com/rolandshoemaker/stapled/log"
+	stapledOCSP "github.com/rolandshoemaker/stapled/ocsp"
+	"github.com/rolandshoemaker/stapled/stableCache"
 )
 
 type cache struct {
-	log       *Logger
-	entries   map[string]*Entry   // one-to-one map keyed on name -> entry
-	lookupMap map[[32]byte]*Entry // many-to-one map keyed on sha256 hashed OCSP requests -> entry
-	mu        sync.RWMutex
+	log            *log.Logger
+	entries        map[string]*Entry   // one-to-one map keyed on name -> entry
+	lookupMap      map[[32]byte]*Entry // many-to-one map keyed on sha256 hashed OCSP requests -> entry
+	StableBackings []stableCache.Cache
+	mu             sync.RWMutex
 }
 
-func newCache(log *Logger, monitorTick time.Duration) *cache {
+func newCache(log *log.Logger, monitorTick time.Duration, stableBackings []stableCache.Cache) *cache {
 	c := &cache{
-		log:       log,
-		entries:   make(map[string]*Entry),
-		lookupMap: make(map[[32]byte]*Entry),
+		log:            log,
+		entries:        make(map[string]*Entry),
+		lookupMap:      make(map[[32]byte]*Entry),
+		StableBackings: stableBackings,
 	}
 	go c.monitor(monitorTick)
 	return c
@@ -150,14 +154,14 @@ func (c *cache) monitor(tick time.Duration) {
 		c.mu.RLock()
 		defer c.mu.RUnlock()
 		for _, entry := range c.entries {
-			go entry.refreshAndLog()
+			go entry.refreshAndLog(c.StableBackings)
 		}
 	}
 }
 
 type Entry struct {
 	name     string
-	log      *Logger
+	log      *log.Logger
 	clk      clock.Clock
 	lastSync time.Time
 
@@ -183,7 +187,7 @@ type Entry struct {
 	mu *sync.RWMutex
 }
 
-func NewEntry(log *Logger, clk clock.Clock, timeout, baseBackoff time.Duration) *Entry {
+func NewEntry(log *log.Logger, clk clock.Clock, timeout, baseBackoff time.Duration) *Entry {
 	return &Entry{
 		log:         log,
 		clk:         clk,
@@ -202,21 +206,11 @@ func loadProxy(uri string) (func(*http.Request) (*url.URL, error), error) {
 	return http.ProxyURL(proxyURL), nil
 }
 
-func (e *Entry) generateResponseFilename(cacheFolder string) {
-	e.responseFilename = path.Join(
-		cacheFolder,
-		fmt.Sprintf(
-			"%s.resp",
-			strings.TrimSuffix(
-				filepath.Base(e.name),
-				filepath.Ext(e.name),
-			),
-		),
-	)
-}
-
 func (e *Entry) loadCertificate(filename string) error {
-	e.name = filename
+	e.name = strings.TrimSuffix(
+		filepath.Base(filename),
+		filepath.Ext(filename),
+	)
 	cert, err := ReadCertificate(filename)
 	if err != nil {
 		return err
@@ -259,7 +253,7 @@ func (e *Entry) loadCertificateInfo(name, serial string) error {
 }
 
 // blergh
-func (e *Entry) FromCertDef(def CertDefinition, globalUpstream []string, globalProxy string, cacheFolder string) error {
+func (e *Entry) FromCertDef(def CertDefinition, globalUpstream []string, globalProxy string) error {
 	if def.Issuer != "" {
 		var err error
 		e.issuer, err = ReadCertificate(def.Issuer)
@@ -282,9 +276,6 @@ func (e *Entry) FromCertDef(def CertDefinition, globalUpstream []string, globalP
 	}
 	if e.issuer == nil {
 		return fmt.Errorf("either issuer or a certificate containing issuer AIA information must be provided")
-	}
-	if cacheFolder != "" {
-		e.generateResponseFilename(cacheFolder)
 	}
 	if len(globalUpstream) > 0 && !def.OverrideGlobalUpstream {
 		e.responders = globalUpstream
@@ -314,7 +305,7 @@ func (e *Entry) FromCertDef(def CertDefinition, globalUpstream []string, globalP
 	return nil
 }
 
-func (e *Entry) Init() error {
+func (e *Entry) Init(stableBackings []stableCache.Cache) error {
 	if e.request == nil {
 		if e.issuer == nil {
 			return errors.New("if request isn't provided issuer must be non-nil")
@@ -341,14 +332,15 @@ func (e *Entry) Init() error {
 	for i := range e.responders {
 		e.responders[i] = strings.TrimSuffix(e.responders[i], "/")
 	}
-	err := e.readFromDisk()
-	if err == nil {
-		return nil
+	for _, s := range stableBackings {
+		resp, respBytes := s.Read(e.name, e.serial, e.issuer)
+		if resp == nil {
+			continue
+		}
+		e.updateResponse("", 0, resp, respBytes, nil)
+		return nil // return first response from a stable cache backing
 	}
-	if !os.IsNotExist(err) {
-		e.err("Failed to read response from disk: %s", err)
-	}
-	err = e.refreshResponse()
+	err := e.refreshResponse(stableBackings)
 	if err != nil {
 		return err
 	}
@@ -356,55 +348,19 @@ func (e *Entry) Init() error {
 	return nil
 }
 
-// info makes a Info Logger call tagged with the entry name
+// info makes a Info log.Logger call tagged with the entry name
 func (e *Entry) info(msg string, args ...interface{}) {
 	e.log.Info(fmt.Sprintf("[entry:%s] %s", e.name, msg), args...)
 }
 
-// info makes a Err Logger call tagged with the entry name
+// info makes a Err log.Logger call tagged with the entry name
 func (e *Entry) err(msg string, args ...interface{}) {
 	e.log.Err(fmt.Sprintf("[entry:%s] %s", e.name, msg), args...)
 }
 
-// writeToDisk writes a response to disk. Assumes the
-// caller holds a write lock
-func (e *Entry) writeToDisk() error {
-	tmpName := fmt.Sprintf("%s.tmp", e.responseFilename)
-	err := ioutil.WriteFile(tmpName, e.response, os.ModePerm)
-	if err != nil {
-		return err
-	}
-	err = os.Rename(tmpName, e.responseFilename)
-	if err != nil {
-		return err
-	}
-	e.info("Written new response to %s", e.responseFilename)
-	return nil
-}
-
-// readFromDisk attempts to read a response that has been
-// cached on disk
-func (e *Entry) readFromDisk() error {
-	respBytes, err := ioutil.ReadFile(e.responseFilename)
-	if err != nil {
-		return err
-	}
-	e.info("Read response from %s", e.responseFilename)
-	resp, err := ocsp.ParseResponse(respBytes, e.issuer)
-	if err != nil {
-		return err
-	}
-	err = e.verifyResponse(resp)
-	if err != nil {
-		return err
-	}
-	e.updateResponse("", 0, resp, respBytes, false)
-	return nil
-}
-
 // updateResponse updates the actual response body/metadata
 // stored in the entry
-func (e *Entry) updateResponse(eTag string, maxAge int, resp *ocsp.Response, respBytes []byte, write bool) error {
+func (e *Entry) updateResponse(eTag string, maxAge int, resp *ocsp.Response, respBytes []byte, stableBackings []stableCache.Cache) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.eTag = eTag
@@ -414,27 +370,28 @@ func (e *Entry) updateResponse(eTag string, maxAge int, resp *ocsp.Response, res
 		e.response = respBytes
 		e.nextUpdate = resp.NextUpdate
 		e.thisUpdate = resp.ThisUpdate
-		if e.responseFilename != "" && write {
-			err := e.writeToDisk()
-			if err != nil {
-				return err
-			}
+		for _, s := range stableBackings {
+			s.Write(e.name, e.response) // logging is internal
 		}
 	}
-	return nil
 }
 
 // refreshResponse fetches and verifies a response and replaces
 // the current response if it is valid and newer
-func (e *Entry) refreshResponse() error {
+func (e *Entry) refreshResponse(stableBackings []stableCache.Cache) error {
 	if !e.timeToUpdate() {
 		return nil
 	}
-	responder := randomResponder(e.responders)
-	e.info("Fetching response from %s", responder)
 	ctx, cancel := context.WithTimeout(context.Background(), e.timeout)
 	defer cancel()
-	resp, respBytes, eTag, maxAge, err := e.fetchResponse(ctx, responder)
+	resp, respBytes, eTag, maxAge, err := stapledOCSP.Fetch(
+		ctx,
+		e.responders,
+		e.client,
+		e.request,
+		e.eTag,
+		e.issuer,
+	)
 	if err != nil {
 		return err
 	}
@@ -443,15 +400,15 @@ func (e *Entry) refreshResponse() error {
 	if resp == nil || bytes.Compare(respBytes, e.response) == 0 {
 		e.mu.RUnlock()
 		e.info("Response hasn't changed since last sync")
-		e.updateResponse(eTag, maxAge, nil, nil, true)
+		e.updateResponse(eTag, maxAge, nil, nil, stableBackings)
 		return nil
 	}
 	e.mu.RUnlock()
-	err = e.verifyResponse(resp)
+	err = stapledOCSP.VerifyResponse(e.clk.Now(), e.serial, resp)
 	if err != nil {
 		return err
 	}
-	e.updateResponse(eTag, maxAge, resp, respBytes, true)
+	e.updateResponse(eTag, maxAge, resp, respBytes, stableBackings)
 	e.info("Response has been refreshed")
 	return nil
 }
@@ -459,8 +416,8 @@ func (e *Entry) refreshResponse() error {
 // refreshAndLog is a small wrapper around refreshResponse
 // for when a caller wants to run it in a goroutine and doesn't
 // want to handle the returned error itself
-func (e *Entry) refreshAndLog() {
-	err := e.refreshResponse()
+func (e *Entry) refreshAndLog(stableBackings []stableCache.Cache) {
+	err := e.refreshResponse(stableBackings)
 	if err != nil {
 		e.err("Failed to refresh response", err)
 	}
@@ -472,8 +429,11 @@ func (e *Entry) timeToUpdate() bool {
 	now := e.clk.Now()
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	// no response or nextUpdate is in the past
-	if e.response == nil || e.nextUpdate.Before(now) {
+	if e.response == nil {
+		// not fetched anything previously
+		return true
+	}
+	if e.nextUpdate.Before(now) {
 		e.info("Stale response, updating immediately")
 		return true
 	}
