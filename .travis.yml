@@ -4,3 +4,11 @@ go:
   - 1.6
 
 sudo: false
+
+addons:
+  apt:
+    packages:
+      - rsyslog
+
+install:
+  - true
