@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -11,7 +12,10 @@ import (
 )
 
 func main() {
-	configFilename := "example.yaml"
+	var configFilename string
+
+	flag.StringVar(&configFilename, "config", "example.yaml", "YAML configuration file")
+	flag.Parse()
 
 	configBytes, err := ioutil.ReadFile(configFilename)
 	if err != nil {
