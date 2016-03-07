@@ -2,7 +2,10 @@ package common
 
 import (
 	"fmt"
+	"os"
 	"time"
+
+	"github.com/rolandshoemaker/stapled/log"
 )
 
 func HumanDuration(d time.Duration) string {
@@ -34,4 +37,10 @@ func HumanDuration(d time.Duration) string {
 		s += fmt.Sprintf("%d %s ", seconds, maybePluralize("second", seconds))
 	}
 	return s
+}
+
+func Fail(logger *log.Logger, msg string) {
+	logger.Err(msg)
+	fmt.Fprintln(os.Stderr, msg)
+	os.Exit(1)
 }
