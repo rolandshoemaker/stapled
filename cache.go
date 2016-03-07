@@ -24,6 +24,7 @@ import (
 	"golang.org/x/crypto/ocsp"
 	"golang.org/x/net/context"
 
+	"github.com/rolandshoemaker/stapled/common"
 	"github.com/rolandshoemaker/stapled/log"
 	stapledOCSP "github.com/rolandshoemaker/stapled/ocsp"
 	"github.com/rolandshoemaker/stapled/stableCache"
@@ -361,6 +362,7 @@ func (e *Entry) err(msg string, args ...interface{}) {
 // updateResponse updates the actual response body/metadata
 // stored in the entry
 func (e *Entry) updateResponse(eTag string, maxAge int, resp *ocsp.Response, respBytes []byte, stableBackings []stableCache.Cache) {
+	e.info("Updating with new response, expires in %s", common.HumanDuration(resp.NextUpdate.Sub(e.clk.Now())))
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.eTag = eTag
@@ -386,6 +388,7 @@ func (e *Entry) refreshResponse(stableBackings []stableCache.Cache) error {
 	defer cancel()
 	resp, respBytes, eTag, maxAge, err := stapledOCSP.Fetch(
 		ctx,
+		e.log,
 		e.responders,
 		e.client,
 		e.request,

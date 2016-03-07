@@ -15,38 +15,9 @@ import (
 
 	"golang.org/x/crypto/ocsp"
 	"golang.org/x/net/context"
-)
 
-func humanDuration(d time.Duration) string {
-	maybePluralize := func(input string, num int) string {
-		if num == 1 {
-			return input
-		}
-		return input + "s"
-	}
-	nanos := time.Duration(d.Nanoseconds())
-	days := int(nanos / (time.Hour * 24))
-	nanos %= time.Hour * 24
-	hours := int(nanos / (time.Hour))
-	nanos %= time.Hour
-	minutes := int(nanos / time.Minute)
-	nanos %= time.Minute
-	seconds := int(nanos / time.Second)
-	s := ""
-	if days > 0 {
-		s += fmt.Sprintf("%d %s ", days, maybePluralize("day", days))
-	}
-	if hours > 0 {
-		s += fmt.Sprintf("%d %s ", hours, maybePluralize("hour", hours))
-	}
-	if minutes > 0 {
-		s += fmt.Sprintf("%d %s ", minutes, maybePluralize("minute", minutes))
-	}
-	if seconds >= 0 {
-		s += fmt.Sprintf("%d %s ", seconds, maybePluralize("second", seconds))
-	}
-	return s
-}
+	"github.com/rolandshoemaker/stapled/log"
+)
 
 func VerifyResponse(now time.Time, serial *big.Int, resp *ocsp.Response) error {
 	if resp.ThisUpdate.After(now) {
@@ -64,15 +35,6 @@ func VerifyResponse(now time.Time, serial *big.Int, resp *ocsp.Response) error {
 	return nil
 }
 
-var statusToString = map[int]string{
-	0: "Success",
-	1: "Malformed",
-	2: "InternalError",
-	3: "TryLater",
-	5: "SignatureRequired",
-	6: "Unauthorized",
-}
-
 func randomResponder(responders []string) string {
 	return responders[mrand.Intn(len(responders))]
 }
@@ -88,12 +50,12 @@ func parseCacheControl(h string) int {
 	return maxAge
 }
 
-func Fetch(ctx context.Context, responders []string, client *http.Client, request []byte, etag string, issuer *x509.Certificate) (*ocsp.Response, []byte, string, int, error) {
+func Fetch(ctx context.Context, logger *log.Logger, responders []string, client *http.Client, request []byte, etag string, issuer *x509.Certificate) (*ocsp.Response, []byte, string, int, error) {
 	responder := randomResponder(responders)
 	backoffSeconds := 0
 	for {
 		if backoffSeconds > 0 {
-			// e.info("Request failed, backing off for %d seconds", backoffSeconds)
+			logger.Info("[fetcher] Request failed, backing off for %d seconds", backoffSeconds)
 		}
 		select {
 		case <-ctx.Done():
@@ -118,16 +80,16 @@ func Fetch(ctx context.Context, responders []string, client *http.Client, reques
 		if etag != "" {
 			req.Header.Set("If-None-Match", etag)
 		}
-		// e.info("Sending request to '%s'", req.URL)
+		logger.Info("[fetcher] Sending request to '%s'", req.URL)
 		resp, err := client.Do(req)
 		if err != nil {
-			// e.err("Request for '%s' failed: %s", req.URL, err)
+			logger.Err("[fetcher] Request for '%s' failed: %s", req.URL, err)
 			backoffSeconds = 10
 			continue
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != 200 && resp.StatusCode != 304 {
-			// e.err("Request for '%s' got a non-200 response: %d", req.URL, resp.StatusCode)
+			logger.Err("[fetcher] Request for '%s' got a non-200 response: %d", req.URL, resp.StatusCode)
 			backoffSeconds = 10
 			if resp.StatusCode == 503 {
 				if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
@@ -140,13 +102,13 @@ func Fetch(ctx context.Context, responders []string, client *http.Client, reques
 		}
 		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
-			// e.err("Failed to read response body from '%s': %s", req.URL, err)
+			logger.Err("[fetcher] Failed to read response body from '%s': %s", req.URL, err)
 			backoffSeconds = 10
 			continue
 		}
 		ocspResp, err := ocsp.ParseResponse(body, issuer)
 		if err != nil {
-			// e.err("Failed to parse response body from '%s': %s", req.URL, err)
+			logger.Err("[fetcher] Failed to parse response body from '%s': %s", req.URL, err)
 			backoffSeconds = 10
 			continue
 		}
@@ -154,7 +116,7 @@ func Fetch(ctx context.Context, responders []string, client *http.Client, reques
 			eTag, cacheControl := resp.Header.Get("ETag"), parseCacheControl(resp.Header.Get("Cache-Control"))
 			return ocspResp, body, eTag, cacheControl, nil
 		}
-		// e.err("Request for '%s' got a invalid OCSP response status: %s", req.URL, statusToString[ocspResp.Status])
+		logger.Err("[fetcher] Request for '%s' got a invalid OCSP response status: %s", req.URL, ocsp.ResponseStatus(ocspResp.Status).String())
 		backoffSeconds = 10
 	}
 }

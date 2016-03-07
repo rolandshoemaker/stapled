@@ -62,6 +62,7 @@ func (dc *DiskCache) Write(name string, content []byte) {
 	err = os.Rename(tmpName, name)
 	if err != nil {
 		dc.logger.Err("[disk-cache] Failed to rename '%s' to '%s': %s", tmpName, name, err)
+		os.Remove(tmpName)
 		return
 	}
 	dc.logger.Info("[disk-cache] Written new response to '%s'", name)

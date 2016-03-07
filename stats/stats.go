@@ -5,6 +5,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/peterbourgon/g2s"
 )
 
 // this entire thing is only really needed if we don't want to
@@ -61,7 +63,7 @@ func (t *timing) percentile(p float64) float64 {
 	percentile := float64(0)
 	i := int(index)
 	if index == float64(int64(index)) {
-		percentile = float64(sumDurations(times[i-1:i+1]).Seconds()/1000) / 2.0
+		percentile = float64(sumDurations(times[i-1:i+1]).Seconds()/1000.0) / 2.0
 	} else {
 		percentile = times[i-1].Seconds() / 1000.0
 	}
@@ -117,6 +119,7 @@ type Stats struct {
 	counters map[string]*counter
 	cMu      *sync.RWMutex
 	interval time.Duration
+	statsd   g2s.Statter
 }
 
 func New(interval time.Duration) *Stats {
@@ -129,7 +132,7 @@ func New(interval time.Duration) *Stats {
 	}
 }
 
-func (s *Stats) AddTiming(key string, d time.Duration) {
+func (s *Stats) Timing(key string, d time.Duration) {
 	s.tMu.RLock()
 	t, present := s.timings[key]
 	if !present {
@@ -142,6 +145,7 @@ func (s *Stats) AddTiming(key string, d time.Duration) {
 	}
 	defer s.tMu.RUnlock()
 	t.add(d)
+	s.statsd.Timing(1, key, d)
 }
 
 func (s *Stats) newCounter(key string) *counter {
@@ -162,6 +166,7 @@ func (s *Stats) Increase(key string, value int64) {
 	}
 	defer s.cMu.RUnlock()
 	c.increase(value)
+	s.statsd.Counter(1.0, key, int(value))
 }
 
 func (s *Stats) Decrease(key string, value int64) {
@@ -174,4 +179,5 @@ func (s *Stats) Decrease(key string, value int64) {
 	}
 	defer s.cMu.RUnlock()
 	c.decrease(value)
+	s.statsd.Counter(1.0, key, int(-value))
 }
