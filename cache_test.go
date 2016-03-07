@@ -19,7 +19,7 @@ func TestCache(t *testing.T) {
 
 	issuer, err := ReadCertificate("testdata/test-issuer.der")
 	if err != nil {
-		t.Fatalf("Failed to read test issuer", err)
+		t.Fatalf("Failed to read test issuer: %s", err)
 	}
 	e := &Entry{
 		mu:       new(sync.RWMutex),
