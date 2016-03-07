@@ -10,10 +10,12 @@ import (
 
 	"github.com/jmhodges/clock"
 	"golang.org/x/crypto/ocsp"
+
+	"github.com/rolandshoemaker/stapled/log"
 )
 
 func TestCache(t *testing.T) {
-	c := newCache(NewLogger("", "", 10, clock.Default()), time.Minute)
+	c := newCache(log.NewLogger("", "", 10, clock.Default()), time.Minute, nil)
 
 	issuer, err := ReadCertificate("testdata/test-issuer.der")
 	if err != nil {
