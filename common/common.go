@@ -2,6 +2,7 @@ package common
 
 import (
 	"fmt"
+	mrand "math/rand"
 	"os"
 	"time"
 
@@ -43,4 +44,8 @@ func Fail(logger *log.Logger, msg string) {
 	logger.Err(msg)
 	fmt.Fprintln(os.Stderr, msg)
 	os.Exit(1)
+}
+
+func RandomString(strings []string) string {
+	return strings[mrand.Intn(len(strings))]
 }

@@ -21,7 +21,7 @@ func (s *stapled) Response(r *ocsp.Request) ([]byte, bool) {
 	}
 
 	// this should live somewhere else
-	e := NewEntry(s.log, s.clk, s.clientTimeout, s.clientBackoff)
+	e := NewEntry(s.log, s.clk, s.clientTimeout)
 	e.serial = r.SerialNumber
 	var err error
 	e.request, err = r.Marshal()
@@ -33,7 +33,7 @@ func (s *stapled) Response(r *ocsp.Request) ([]byte, bool) {
 	serialHash := sha256.Sum256(e.serial.Bytes())
 	key := sha256.Sum256(append(append(r.IssuerNameHash, r.IssuerKeyHash...), serialHash[:]...))
 	e.name = fmt.Sprintf("%X", key)
-	err = e.Init(s.stableBackings)
+	err = e.Init(s.stableBackings, s.client)
 	if err != nil {
 		s.log.Err("Failed to initialize new entry: %s", err)
 		return nil, false
