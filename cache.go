@@ -13,7 +13,6 @@ import (
 	"math/big"
 	mrand "math/rand"
 	"net/http"
-	"net/url"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -193,12 +192,6 @@ func NewEntry(log *log.Logger, clk clock.Clock, timeout time.Duration) *Entry {
 		clk:     clk,
 		timeout: timeout,
 		mu:      new(sync.RWMutex),
-	}
-}
-
-func proxyFunc(proxies []string) func(*http.Request) (*url.URL, error) {
-	return func(*http.Request) (*url.URL, error) {
-		return url.Parse(common.RandomString(proxies))
 	}
 }
 

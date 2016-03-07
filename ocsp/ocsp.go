@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"math/big"
+	mrand "math/rand"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -15,7 +16,6 @@ import (
 	"golang.org/x/crypto/ocsp"
 	"golang.org/x/net/context"
 
-	"github.com/rolandshoemaker/stapled/common"
 	"github.com/rolandshoemaker/stapled/log"
 )
 
@@ -46,8 +46,12 @@ func parseCacheControl(h string) int {
 	return maxAge
 }
 
+func randomResponder(responders []string) string {
+	return responders[mrand.Intn(len(responders))]
+}
+
 func Fetch(ctx context.Context, logger *log.Logger, responders []string, client *http.Client, request []byte, etag string, issuer *x509.Certificate) (*ocsp.Response, []byte, string, int, error) {
-	responder := common.RandomString(responders)
+	responder := randomResponder(responders)
 	backoffSeconds := 0
 	for {
 		if backoffSeconds > 0 {

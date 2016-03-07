@@ -6,7 +6,6 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"time"
 
@@ -51,10 +50,12 @@ func main() {
 
 	client := new(http.Client)
 	if len(config.Fetcher.Proxies) != 0 {
+		proxyFunc, err := common.ProxyFunc(config.Fetcher.Proxies)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to parsed proxy URI: %s", err)
+		}
 		client.Transport = &http.Transport{
-			Proxy: func(*http.Request) (*url.URL, error) {
-				return url.Parse(common.RandomString(config.Fetcher.Proxies))
-			},
+			Proxy: proxyFunc,
 			Dial: (&net.Dialer{
 				Timeout:   30 * time.Second,
 				KeepAlive: 30 * time.Second,
