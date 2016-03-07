@@ -7,7 +7,8 @@
 		"golang.org/x/net/context",
 		"gopkg.in/yaml.v2",
 		"github.com/cloudflare/cfssl/log",
-		"github.com/cloudflare/cfssl/ocsp"
+		"github.com/cloudflare/cfssl/ocsp",
+		"github.com/peterbourgon/g2s"
 	],
 	"Deps": [
 		{
@@ -43,6 +44,10 @@
 		{
 			"ImportPath": "github.com/jmhodges/clock",
 			"Rev": "3c4ebd218625c9364c33db6d39c276d80c3090c6"
+		},
+		{
+			"ImportPath": "github.com/peterbourgon/g2s",
+			"Rev": "ec76db4c1ac16400ac0e17ca9c4840e1d23da5dc"
 		},
 		{
 			"ImportPath": "golang.org/x/crypto/ocsp",
