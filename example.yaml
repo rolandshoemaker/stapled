@@ -7,11 +7,10 @@ definitions:
 
 fetcher:
   timeout: 60s                          # deadline to fetch response (will do N retries until deadline passes)
-  base-backoff: 10s                     # base backoff period for failures
-  # proxy: user:pass@127.0.0.1:8080     # proxy to talk through
+  # proxies:
+  #  - user:pass@127.0.0.1:8080         # proxy to talk through
   upstream-responders:
     - http://ocsp.int-x1.letsencrypt.org
-  dont-cache: false                     # always ask upstream responder/stapled
 
 disk:
   cache-folder: ocsp-responses/
@@ -25,7 +24,3 @@ stats-addr: 0.0.0.0:7777
 #   network: tcp
 #   addr: 127.0.0.1:2020
 #   stdout-level: 5
-
-dont-seed-cache-from-disk: true
-
-dont-die-on-stale-response: true

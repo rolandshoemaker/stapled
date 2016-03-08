@@ -2,6 +2,9 @@ package common
 
 import (
 	"fmt"
+	mrand "math/rand"
+	"net/http"
+	"net/url"
 	"os"
 	"time"
 
@@ -43,4 +46,22 @@ func Fail(logger *log.Logger, msg string) {
 	logger.Err(msg)
 	fmt.Fprintln(os.Stderr, msg)
 	os.Exit(1)
+}
+
+func randomURL(urls []*url.URL) *url.URL {
+	return urls[mrand.Intn(len(urls))]
+}
+
+func ProxyFunc(proxies []string) (func(*http.Request) (*url.URL, error), error) {
+	proxyURLs := []*url.URL{}
+	for _, p := range proxies {
+		u, err := url.Parse(p)
+		if err != nil {
+			return nil, err
+		}
+		proxyURLs = append(proxyURLs, u)
+	}
+	return func(*http.Request) (*url.URL, error) {
+		return randomURL(proxyURLs), nil
+	}, nil
 }

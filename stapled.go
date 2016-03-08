@@ -12,32 +12,29 @@ import (
 )
 
 type stapled struct {
-	log               *log.Logger
-	clk               clock.Clock
-	c                 *cache
-	responder         *http.Server
-	certFolderWatcher *dirWatcher
-	stableBackings    []stableCache.Cache
-
-	clientTimeout          time.Duration
-	clientBackoff          time.Duration
-	entryMonitorTick       time.Duration
-	upstreamResponders     []string
-	dontDieOnStaleResponse bool
+	log                *log.Logger
+	clk                clock.Clock
+	c                  *cache
+	responder          *http.Server
+	certFolderWatcher  *dirWatcher
+	stableBackings     []stableCache.Cache
+	client             *http.Client
+	clientTimeout      time.Duration
+	entryMonitorTick   time.Duration
+	upstreamResponders []string
 }
 
-func New(log *log.Logger, clk clock.Clock, httpAddr string, timeout, backoff, monitorTick time.Duration, responders []string, dontDieOnStale bool, certFolder string, entries []*Entry, stableBackings []stableCache.Cache) (*stapled, error) {
-	c := newCache(log, monitorTick, stableBackings)
+func New(log *log.Logger, clk clock.Clock, httpAddr string, timeout, monitorTick time.Duration, responders []string, dontDieOnStale bool, certFolder string, entries []*Entry, stableBackings []stableCache.Cache, client *http.Client) (*stapled, error) {
+	c := newCache(log, monitorTick, stableBackings, client)
 	s := &stapled{
-		log:                    log,
-		clk:                    clk,
-		c:                      c,
-		clientTimeout:          timeout,
-		clientBackoff:          backoff,
-		dontDieOnStaleResponse: dontDieOnStale,
-		upstreamResponders:     responders,
-		certFolderWatcher:      newDirWatcher(certFolder),
-		stableBackings:         stableBackings,
+		log:                log,
+		clk:                clk,
+		c:                  c,
+		clientTimeout:      timeout,
+		upstreamResponders: responders,
+		certFolderWatcher:  newDirWatcher(certFolder),
+		stableBackings:     stableBackings,
+		client:             client,
 	}
 	// add entries to cache
 	for _, e := range entries {
@@ -48,6 +45,7 @@ func New(log *log.Logger, clk clock.Clock, httpAddr string, timeout, backoff, mo
 	return s, nil
 }
 
+// this should probably live on cache
 func (s *stapled) checkCertDirectory() {
 	added, removed, err := s.certFolderWatcher.check()
 	if err != nil {
@@ -57,13 +55,13 @@ func (s *stapled) checkCertDirectory() {
 	}
 	for _, a := range added {
 		// create entry + add to cache
-		e := NewEntry(s.log, s.clk, s.clientTimeout, s.clientBackoff)
+		e := NewEntry(s.log, s.clk, s.clientTimeout)
 		err = e.loadCertificate(a)
 		if err != nil {
 			s.log.Err("Failed to load new certificate '%s': %s", a, err)
 			continue
 		}
-		err = e.Init(s.c.StableBackings)
+		err = e.Init(s.c.StableBackings, s.client)
 		if err != nil {
 			s.log.Err("Failed to initialize entry for new certificate '%s': %s", a, err)
 			continue

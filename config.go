@@ -7,15 +7,13 @@ type CertDefinition struct {
 	Issuer                 string
 	Serial                 string
 	Responders             []string
-	Proxy                  string
 	OverrideGlobalUpstream bool `yaml:"override-global-upstream"`
-	OverrideGlobalProxy    bool `yaml:"override-global-proxy"`
 }
 
 type FetcherConfig struct {
 	Timeout            string
 	BaseBackoff        string `yaml:"base-backoff"`
-	Proxy              string
+	Proxies            []string
 	UpstreamResponders []string `yaml:"upstream-responders"`
 }
 

@@ -12,9 +12,7 @@ import (
 	"io/ioutil"
 	"math/big"
 	mrand "math/rand"
-	"net"
 	"net/http"
-	"net/url"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -35,15 +33,17 @@ type cache struct {
 	entries        map[string]*Entry   // one-to-one map keyed on name -> entry
 	lookupMap      map[[32]byte]*Entry // many-to-one map keyed on sha256 hashed OCSP requests -> entry
 	StableBackings []stableCache.Cache
+	client         *http.Client
 	mu             sync.RWMutex
 }
 
-func newCache(log *log.Logger, monitorTick time.Duration, stableBackings []stableCache.Cache) *cache {
+func newCache(log *log.Logger, monitorTick time.Duration, stableBackings []stableCache.Cache, client *http.Client) *cache {
 	c := &cache{
 		log:            log,
 		entries:        make(map[string]*Entry),
 		lookupMap:      make(map[[32]byte]*Entry),
 		StableBackings: stableBackings,
+		client:         client,
 	}
 	go c.monitor(monitorTick)
 	return c
@@ -155,7 +155,7 @@ func (c *cache) monitor(tick time.Duration) {
 		c.mu.RLock()
 		defer c.mu.RUnlock()
 		for _, entry := range c.entries {
-			go entry.refreshAndLog(c.StableBackings)
+			go entry.refreshAndLog(c.StableBackings, c.client)
 		}
 	}
 }
@@ -171,11 +171,9 @@ type Entry struct {
 	issuer *x509.Certificate
 
 	// request related
-	responders  []string
-	client      *http.Client
-	timeout     time.Duration
-	baseBackoff time.Duration
-	request     []byte
+	responders []string
+	timeout    time.Duration
+	request    []byte
 
 	// response related
 	maxAge           time.Duration
@@ -188,23 +186,13 @@ type Entry struct {
 	mu *sync.RWMutex
 }
 
-func NewEntry(log *log.Logger, clk clock.Clock, timeout, baseBackoff time.Duration) *Entry {
+func NewEntry(log *log.Logger, clk clock.Clock, timeout time.Duration) *Entry {
 	return &Entry{
-		log:         log,
-		clk:         clk,
-		client:      new(http.Client),
-		timeout:     timeout,
-		baseBackoff: baseBackoff,
-		mu:          new(sync.RWMutex),
+		log:     log,
+		clk:     clk,
+		timeout: timeout,
+		mu:      new(sync.RWMutex),
 	}
-}
-
-func loadProxy(uri string) (func(*http.Request) (*url.URL, error), error) {
-	proxyURL, err := url.Parse(uri)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse proxy URL: %s", err)
-	}
-	return http.ProxyURL(proxyURL), nil
 }
 
 func (e *Entry) loadCertificate(filename string) error {
@@ -254,7 +242,7 @@ func (e *Entry) loadCertificateInfo(name, serial string) error {
 }
 
 // blergh
-func (e *Entry) FromCertDef(def CertDefinition, globalUpstream []string, globalProxy string) error {
+func (e *Entry) FromCertDef(def CertDefinition, globalUpstream []string) error {
 	if def.Issuer != "" {
 		var err error
 		e.issuer, err = ReadCertificate(def.Issuer)
@@ -283,30 +271,10 @@ func (e *Entry) FromCertDef(def CertDefinition, globalUpstream []string, globalP
 	} else if len(def.Responders) > 0 {
 		e.responders = def.Responders
 	}
-	proxyURI := ""
-	if globalProxy != "" && !def.OverrideGlobalProxy {
-		proxyURI = globalProxy
-	} else if def.Proxy != "" {
-		proxyURI = def.Proxy
-	}
-	if proxyURI != "" {
-		proxy, err := loadProxy(proxyURI)
-		if err != nil {
-			return err
-		}
-		e.client.Transport = &http.Transport{
-			Proxy: proxy,
-			Dial: (&net.Dialer{
-				Timeout:   30 * time.Second,
-				KeepAlive: 30 * time.Second,
-			}).Dial,
-			TLSHandshakeTimeout: 10 * time.Second,
-		}
-	}
 	return nil
 }
 
-func (e *Entry) Init(stableBackings []stableCache.Cache) error {
+func (e *Entry) Init(stableBackings []stableCache.Cache, client *http.Client) error {
 	if e.request == nil {
 		if e.issuer == nil {
 			return errors.New("if request isn't provided issuer must be non-nil")
@@ -341,7 +309,7 @@ func (e *Entry) Init(stableBackings []stableCache.Cache) error {
 		e.updateResponse("", 0, resp, respBytes, nil)
 		return nil // return first response from a stable cache backing
 	}
-	err := e.refreshResponse(stableBackings)
+	err := e.refreshResponse(stableBackings, client)
 	if err != nil {
 		return err
 	}
@@ -380,7 +348,7 @@ func (e *Entry) updateResponse(eTag string, maxAge int, resp *ocsp.Response, res
 
 // refreshResponse fetches and verifies a response and replaces
 // the current response if it is valid and newer
-func (e *Entry) refreshResponse(stableBackings []stableCache.Cache) error {
+func (e *Entry) refreshResponse(stableBackings []stableCache.Cache, client *http.Client) error {
 	if !e.timeToUpdate() {
 		return nil
 	}
@@ -390,7 +358,7 @@ func (e *Entry) refreshResponse(stableBackings []stableCache.Cache) error {
 		ctx,
 		e.log,
 		e.responders,
-		e.client,
+		client,
 		e.request,
 		e.eTag,
 		e.issuer,
@@ -419,8 +387,8 @@ func (e *Entry) refreshResponse(stableBackings []stableCache.Cache) error {
 // refreshAndLog is a small wrapper around refreshResponse
 // for when a caller wants to run it in a goroutine and doesn't
 // want to handle the returned error itself
-func (e *Entry) refreshAndLog(stableBackings []stableCache.Cache) {
-	err := e.refreshResponse(stableBackings)
+func (e *Entry) refreshAndLog(stableBackings []stableCache.Cache, client *http.Client) {
+	err := e.refreshResponse(stableBackings, client)
 	if err != nil {
 		e.err("Failed to refresh response", err)
 	}

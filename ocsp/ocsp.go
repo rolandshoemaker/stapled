@@ -35,10 +35,6 @@ func VerifyResponse(now time.Time, serial *big.Int, resp *ocsp.Response) error {
 	return nil
 }
 
-func randomResponder(responders []string) string {
-	return responders[mrand.Intn(len(responders))]
-}
-
 func parseCacheControl(h string) int {
 	maxAge := 0
 	h = strings.Replace(h, " ", "", -1)
@@ -48,6 +44,10 @@ func parseCacheControl(h string) int {
 		}
 	}
 	return maxAge
+}
+
+func randomResponder(responders []string) string {
+	return responders[mrand.Intn(len(responders))]
 }
 
 func Fetch(ctx context.Context, logger *log.Logger, responders []string, client *http.Client, request []byte, etag string, issuer *x509.Certificate) (*ocsp.Response, []byte, string, int, error) {

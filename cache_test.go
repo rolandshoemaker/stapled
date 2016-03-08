@@ -15,7 +15,7 @@ import (
 )
 
 func TestCache(t *testing.T) {
-	c := newCache(log.NewLogger("", "", 10, clock.Default()), time.Minute, nil)
+	c := newCache(log.NewLogger("", "", 10, clock.Default()), time.Minute, nil, nil)
 
 	issuer, err := ReadCertificate("testdata/test-issuer.der")
 	if err != nil {
