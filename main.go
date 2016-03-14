@@ -13,7 +13,9 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/rolandshoemaker/stapled/common"
+	"github.com/rolandshoemaker/stapled/config"
 	"github.com/rolandshoemaker/stapled/log"
+	"github.com/rolandshoemaker/stapled/memCache"
 	"github.com/rolandshoemaker/stapled/stableCache"
 )
 
@@ -28,19 +30,19 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Failed to read configuration file '%s': %s", configFilename, err)
 		os.Exit(1)
 	}
-	var config Configuration
-	err = yaml.Unmarshal(configBytes, &config)
+	var conf config.Configuration
+	err = yaml.Unmarshal(configBytes, &conf)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to parse configuration file: %s", err)
 		os.Exit(1)
 	}
 
 	clk := clock.Default()
-	logger := log.NewLogger(config.Syslog.Network, config.Syslog.Addr, config.Syslog.StdoutLevel, clk)
+	logger := log.NewLogger(conf.Syslog.Network, conf.Syslog.Addr, conf.Syslog.StdoutLevel, clk)
 
 	timeout := time.Second * time.Duration(10)
-	if config.Fetcher.Timeout != "" {
-		timeoutSeconds, err := time.ParseDuration(config.Fetcher.Timeout)
+	if conf.Fetcher.Timeout != "" {
+		timeoutSeconds, err := time.ParseDuration(conf.Fetcher.Timeout)
 		if err != nil {
 			logger.Err("Failed to parse timeout: %s", err)
 			os.Exit(1)
@@ -49,8 +51,8 @@ func main() {
 	}
 
 	client := new(http.Client)
-	if len(config.Fetcher.Proxies) != 0 {
-		proxyFunc, err := common.ProxyFunc(config.Fetcher.Proxies)
+	if len(conf.Fetcher.Proxies) != 0 {
+		proxyFunc, err := common.ProxyFunc(conf.Fetcher.Proxies)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to parsed proxy URI: %s", err)
 		}
@@ -65,15 +67,15 @@ func main() {
 	}
 
 	stableBackings := []stableCache.Cache{}
-	if config.Disk.CacheFolder != "" {
-		stableBackings = append(stableBackings, stableCache.NewDisk(logger, clk, config.Disk.CacheFolder))
+	if conf.Disk.CacheFolder != "" {
+		stableBackings = append(stableBackings, stableCache.NewDisk(logger, clk, conf.Disk.CacheFolder))
 	}
 
 	logger.Info("Loading definitions")
-	entries := []*Entry{}
-	for _, def := range config.Definitions.Certificates {
-		e := NewEntry(logger, clk, timeout)
-		err = e.FromCertDef(def, config.Fetcher.UpstreamResponders)
+	entries := []*memCache.Entry{}
+	for _, def := range conf.Definitions.Certificates {
+		e := memCache.NewEntry(logger, clk, timeout)
+		err = e.FromCertDef(def, conf.Fetcher.UpstreamResponders)
 		if err != nil {
 			logger.Err("Failed to populate entry: %s", err)
 			os.Exit(1)
@@ -90,12 +92,12 @@ func main() {
 	s, err := New(
 		logger,
 		clk,
-		config.HTTP.Addr,
+		conf.HTTP.Addr,
 		timeout,
 		1*time.Minute,
-		config.Fetcher.UpstreamResponders,
-		config.DontDieOnStaleResponse,
-		config.Definitions.CertWatchFolder,
+		conf.Fetcher.UpstreamResponders,
+		conf.DontDieOnStaleResponse,
+		conf.Definitions.CertWatchFolder,
 		entries,
 		stableBackings,
 		client,

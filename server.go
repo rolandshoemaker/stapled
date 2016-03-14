@@ -1,8 +1,6 @@
 package main
 
 import (
-	"crypto/sha256"
-	"fmt"
 	"net/http"
 
 	cflog "github.com/cloudflare/cfssl/log"
@@ -13,33 +11,19 @@ import (
 )
 
 func (s *stapled) Response(r *ocsp.Request) ([]byte, bool) {
-	if response, present := s.c.lookupResponse(r); present {
+	if response, present := s.c.LookupResponse(r); present {
 		return response, present
 	}
 	if len(s.upstreamResponders) == 0 {
 		return nil, false
 	}
 
-	// this should live somewhere else
-	e := NewEntry(s.log, s.clk, s.clientTimeout)
-	e.serial = r.SerialNumber
-	var err error
-	e.request, err = r.Marshal()
+	response, err := s.c.AddFromRequest(r, s.upstreamResponders, s.stableBackings, s.client)
 	if err != nil {
-		s.log.Err("Failed to marshal request: %s", err)
+		s.log.Err("Failed to add entry to cache from request: %s", err)
 		return nil, false
 	}
-	e.responders = s.upstreamResponders
-	serialHash := sha256.Sum256(e.serial.Bytes())
-	key := sha256.Sum256(append(append(r.IssuerNameHash, r.IssuerKeyHash...), serialHash[:]...))
-	e.name = fmt.Sprintf("%X", key)
-	err = e.Init(s.stableBackings, s.client)
-	if err != nil {
-		s.log.Err("Failed to initialize new entry: %s", err)
-		return nil, false
-	}
-	s.c.addSingle(e, key)
-	return e.response, true
+	return response, true
 }
 
 func (s *stapled) initResponder(httpAddr string, logger *log.Logger) {

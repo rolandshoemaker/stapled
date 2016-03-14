@@ -1,4 +1,4 @@
-package main
+package config
 
 type CertDefinition struct {
 	Certificate            string

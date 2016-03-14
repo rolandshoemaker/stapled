@@ -8,13 +8,14 @@ import (
 	"github.com/jmhodges/clock"
 
 	"github.com/rolandshoemaker/stapled/log"
+	"github.com/rolandshoemaker/stapled/memCache"
 	"github.com/rolandshoemaker/stapled/stableCache"
 )
 
 type stapled struct {
 	log                *log.Logger
 	clk                clock.Clock
-	c                  *cache
+	c                  *memCache.EntryCache
 	responder          *http.Server
 	certFolderWatcher  *dirWatcher
 	stableBackings     []stableCache.Cache
@@ -24,8 +25,8 @@ type stapled struct {
 	upstreamResponders []string
 }
 
-func New(log *log.Logger, clk clock.Clock, httpAddr string, timeout, monitorTick time.Duration, responders []string, dontDieOnStale bool, certFolder string, entries []*Entry, stableBackings []stableCache.Cache, client *http.Client) (*stapled, error) {
-	c := newCache(log, monitorTick, stableBackings, client)
+func New(log *log.Logger, clk clock.Clock, httpAddr string, timeout, monitorTick time.Duration, responders []string, dontDieOnStale bool, certFolder string, entries []*memCache.Entry, stableBackings []stableCache.Cache, client *http.Client) (*stapled, error) {
+	c := memCache.NewEntryCache(log, monitorTick, stableBackings, client)
 	s := &stapled{
 		log:                log,
 		clk:                clk,
@@ -55,7 +56,7 @@ func (s *stapled) checkCertDirectory() {
 	}
 	for _, a := range added {
 		// create entry + add to cache
-		e := NewEntry(s.log, s.clk, s.clientTimeout)
+		e := memCache.NewEntry(s.log, s.clk, s.clientTimeout)
 		err = e.loadCertificate(a)
 		if err != nil {
 			s.log.Err("Failed to load new certificate '%s': %s", a, err)

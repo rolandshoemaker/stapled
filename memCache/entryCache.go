@@ -1,4 +1,4 @@
-package main
+package memCache
 
 import (
 	"bytes"
@@ -23,13 +23,16 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/rolandshoemaker/stapled/common"
+	"github.com/rolandshoemaker/stapled/config"
 	"github.com/rolandshoemaker/stapled/log"
 	stapledOCSP "github.com/rolandshoemaker/stapled/ocsp"
 	"github.com/rolandshoemaker/stapled/stableCache"
 )
 
-type cache struct {
+type EntryCache struct {
 	log            *log.Logger
+	clk            clock.Clock
+	requestTimeout time.Duration
 	entries        map[string]*Entry   // one-to-one map keyed on name -> entry
 	lookupMap      map[[32]byte]*Entry // many-to-one map keyed on sha256 hashed OCSP requests -> entry
 	StableBackings []stableCache.Cache
@@ -37,8 +40,8 @@ type cache struct {
 	mu             sync.RWMutex
 }
 
-func newCache(log *log.Logger, monitorTick time.Duration, stableBackings []stableCache.Cache, client *http.Client) *cache {
-	c := &cache{
+func NewEntryCache(log *log.Logger, monitorTick time.Duration, stableBackings []stableCache.Cache, client *http.Client) *EntryCache {
+	c := &EntryCache{
 		log:            log,
 		entries:        make(map[string]*Entry),
 		lookupMap:      make(map[[32]byte]*Entry),
@@ -50,7 +53,7 @@ func newCache(log *log.Logger, monitorTick time.Duration, stableBackings []stabl
 }
 
 func hashEntry(h hash.Hash, name, pkiBytes []byte, serial *big.Int) ([32]byte, error) {
-	issuerNameHash, issuerKeyHash, err := hashNameAndPKI(h, name, pkiBytes)
+	issuerNameHash, issuerKeyHash, err := common.HashNameAndPKI(h, name, pkiBytes)
 	if err != nil {
 		return [32]byte{}, err
 	}
@@ -77,7 +80,7 @@ func hashRequest(request *ocsp.Request) [32]byte {
 	return sha256.Sum256(append(append(request.IssuerNameHash, request.IssuerKeyHash...), serialHash[:]...))
 }
 
-func (c *cache) lookup(request *ocsp.Request) (*Entry, bool) {
+func (c *EntryCache) lookup(request *ocsp.Request) (*Entry, bool) {
 	hash := hashRequest(request)
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -85,7 +88,7 @@ func (c *cache) lookup(request *ocsp.Request) (*Entry, bool) {
 	return e, present
 }
 
-func (c *cache) lookupResponse(request *ocsp.Request) ([]byte, bool) {
+func (c *EntryCache) LookupResponse(request *ocsp.Request) ([]byte, bool) {
 	e, present := c.lookup(request)
 	if present {
 		e.mu.RLock()
@@ -95,7 +98,7 @@ func (c *cache) lookupResponse(request *ocsp.Request) ([]byte, bool) {
 	return nil, present
 }
 
-func (c *cache) addSingle(e *Entry, key [32]byte) {
+func (c *EntryCache) addSingle(e *Entry, key [32]byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if _, present := c.entries[e.name]; present {
@@ -109,7 +112,7 @@ func (c *cache) addSingle(e *Entry, key [32]byte) {
 
 // this cache structure seems kind of gross but... idk i think it's prob
 // best for now (until I can think of something better :/)
-func (c *cache) addMulti(e *Entry) error {
+func (c *EntryCache) addMulti(e *Entry) error {
 	hashes, err := allHashes(e)
 	if err != nil {
 		return err
@@ -129,7 +132,7 @@ func (c *cache) addMulti(e *Entry) error {
 	return nil
 }
 
-func (c *cache) remove(name string) error {
+func (c *EntryCache) remove(name string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	e, present := c.entries[name]
@@ -149,7 +152,7 @@ func (c *cache) remove(name string) error {
 	return nil
 }
 
-func (c *cache) monitor(tick time.Duration) {
+func (c *EntryCache) monitor(tick time.Duration) {
 	ticker := time.NewTicker(tick)
 	for range ticker.C {
 		c.mu.RLock()
@@ -200,7 +203,7 @@ func (e *Entry) loadCertificate(filename string) error {
 		filepath.Base(filename),
 		filepath.Ext(filename),
 	)
-	cert, err := ReadCertificate(filename)
+	cert, err := common.ReadCertificate(filename)
 	if err != nil {
 		return err
 	}
@@ -220,7 +223,7 @@ func (e *Entry) loadCertificate(filename string) error {
 				e.log.Err("Failed to read issuer body from '%s': %s", issuerURL, err)
 				continue
 			}
-			e.issuer, err = ParseCertificate(body)
+			e.issuer, err = common.ParseCertificate(body)
 			if err != nil {
 				e.log.Err("Failed to parse issuer body from '%s': %s", issuerURL, err)
 				continue
@@ -241,11 +244,10 @@ func (e *Entry) loadCertificateInfo(name, serial string) error {
 	return nil
 }
 
-// blergh
-func (e *Entry) FromCertDef(def CertDefinition, globalUpstream []string) error {
+func (e *Entry) FromCertDef(def config.CertDefinition, globalUpstream []string) error {
 	if def.Issuer != "" {
 		var err error
-		e.issuer, err = ReadCertificate(def.Issuer)
+		e.issuer, err = common.ReadCertificate(def.Issuer)
 		if err != nil {
 			return err
 		}
@@ -273,13 +275,32 @@ func (e *Entry) FromCertDef(def CertDefinition, globalUpstream []string) error {
 	}
 	return nil
 }
+func (c *EntryCache) AddFromRequest(req *ocsp.Request, upstream []string, stable []stableCache.Cache, client *http.Client) ([]byte, error) {
+	e := NewEntry(c.log, c.clk, c.requestTimeout) // XXX: fix clock + request timeout
+	e.serial = req.SerialNumber
+	var err error
+	e.request, err = req.Marshal()
+	if err != nil {
+		return nil, err
+	}
+	e.responders = upstream
+	serialHash := sha256.Sum256(e.serial.Bytes())
+	key := sha256.Sum256(append(append(req.IssuerNameHash, req.IssuerKeyHash...), serialHash[:]...))
+	e.name = fmt.Sprintf("%X", key)
+	err = e.Init(stable, client)
+	if err != nil {
+		return nil, err
+	}
+	c.addSingle(e, key)
+	return e.response, nil
+}
 
 func (e *Entry) Init(stableBackings []stableCache.Cache, client *http.Client) error {
 	if e.request == nil {
 		if e.issuer == nil {
 			return errors.New("if request isn't provided issuer must be non-nil")
 		}
-		issuerNameHash, issuerKeyHash, err := hashNameAndPKI(
+		issuerNameHash, issuerKeyHash, err := common.HashNameAndPKI(
 			crypto.SHA1.New(),
 			e.issuer.RawSubject,
 			e.issuer.RawSubjectPublicKeyInfo,
