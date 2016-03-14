@@ -48,15 +48,15 @@ func TestVerifyResponse(t *testing.T) {
 func TestParseCacheControl(t *testing.T) {
 	ma := parseCacheControl("derp")
 	if ma != 0 {
-		t.Fatal("parseCacheControl parsed 'derp' as %d", ma)
+		t.Fatalf("parseCacheControl parsed 'derp' as %d", ma)
 	}
 	ma = parseCacheControl("max-age=")
 	if ma != 0 {
-		t.Fatal("parseCacheControl parsed 'max-age=' as %d", ma)
+		t.Fatalf("parseCacheControl parsed 'max-age=' as %d", ma)
 	}
 	ma = parseCacheControl("max-age=100")
 	if ma != 100 {
-		t.Fatal("parseCacheControl parsed 'max-age=100' as %d", ma)
+		t.Fatalf("parseCacheControl parsed 'max-age=100' as %d", ma)
 	}
 
 }
