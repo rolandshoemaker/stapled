@@ -26,9 +26,6 @@ func VerifyResponse(now time.Time, serial *big.Int, resp *ocsp.Response) error {
 	if resp.NextUpdate.Before(now) {
 		return fmt.Errorf("stale OCSP response: NextUpdate is in the past (%s before %s)", resp.NextUpdate, now)
 	}
-	if resp.ThisUpdate.After(resp.NextUpdate) {
-		return fmt.Errorf("malformed OCSP response: NextUpdate is before ThisUpate (%s before %s)", resp.NextUpdate, resp.ThisUpdate)
-	}
 	if serial.Cmp(resp.SerialNumber) != 0 {
 		return fmt.Errorf("malformed OCSP response: Serial numbers don't match (wanted %s, got %s)", serial, resp.SerialNumber)
 	}
