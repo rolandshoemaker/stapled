@@ -42,7 +42,13 @@ func HumanDuration(d time.Duration) string {
 	return s
 }
 
-func Fail(logger *log.Logger, msg string) {
+type Failer interface {
+	Fail(*log.Logger, string)
+}
+
+type BasicFailer struct{}
+
+func (bf *BasicFailer) Fail(logger *log.Logger, msg string) {
 	logger.Err(msg)
 	fmt.Fprintln(os.Stderr, msg)
 	os.Exit(1)

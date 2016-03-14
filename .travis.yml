@@ -12,3 +12,6 @@ addons:
 
 install:
   - true
+
+script:
+  - bash test.sh
