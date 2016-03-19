@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/x509"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -72,35 +73,33 @@ func main() {
 	}
 
 	logger.Info("Loading definitions")
-	entries := []*memCache.Entry{}
+	c := memCache.NewEntryCache(clk, logger, 1*time.Minute, stableBackings, client, timeout)
+
 	for _, def := range conf.Definitions.Certificates {
-		e := memCache.NewEntry(logger, clk, timeout)
-		err = e.FromCertDef(def, conf.Fetcher.UpstreamResponders)
+		var issuer *x509.Certificate
+		var responders []string
+		if def.Issuer != "" {
+			issuer, err = common.ReadCertificate(def.Issuer)
+			if err != nil {
+				logger.Err("Failed to load issuer '%s': %s", def.Issuer, err)
+				os.Exit(1)
+			}
+		}
+		err = c.AddFromCertificate(def.Certificate, issuer, responders)
 		if err != nil {
-			logger.Err("Failed to populate entry: %s", err)
+			logger.Err("Failed to load entry: %s", err)
 			os.Exit(1)
 		}
-		err = e.Init(stableBackings, client)
-		if err != nil {
-			logger.Err("Failed to initialize entry: %s", err)
-			os.Exit(1)
-		}
-		entries = append(entries, e)
 	}
 
 	logger.Info("Initializing stapled")
 	s, err := New(
+		c,
 		logger,
 		clk,
 		conf.HTTP.Addr,
-		timeout,
-		1*time.Minute,
 		conf.Fetcher.UpstreamResponders,
-		conf.DontDieOnStaleResponse,
 		conf.Definitions.CertWatchFolder,
-		entries,
-		stableBackings,
-		client,
 	)
 	if err != nil {
 		logger.Err("Failed to initialize stapled: %s", err)

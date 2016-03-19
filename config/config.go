@@ -2,10 +2,8 @@ package config
 
 type CertDefinition struct {
 	Certificate            string
-	Name                   string
 	ResponseName           string
 	Issuer                 string
-	Serial                 string
 	Responders             []string
 	OverrideGlobalUpstream bool `yaml:"override-global-upstream"`
 }
@@ -24,10 +22,6 @@ type CertificateDefinitions struct {
 }
 
 type Configuration struct {
-	DontDieOnStaleResponse bool `yaml:"dont-die-on-stale-response"`
-	DontSeedCacheFromDisk  bool `yaml:"dont-seed-cache-from-disk"`
-	DontCache              bool `yaml:"dont-cache"`
-
 	Syslog struct {
 		Network     string
 		Addr        string

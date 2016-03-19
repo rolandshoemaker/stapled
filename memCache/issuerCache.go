@@ -4,8 +4,6 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"sync"
-
-	"github.com/rolandshoemaker/stapled/common"
 )
 
 type issuerCache struct {
@@ -13,18 +11,19 @@ type issuerCache struct {
 	mu     sync.RWMutex
 }
 
-func (ic *issuerCache) get(hash [32]byte) *x509.Certificate {
+func newIssuerCache() *issuerCache {
+	return &issuerCache{hashed: make(map[[32]byte]*x509.Certificate)}
+}
+
+func (ic *issuerCache) get(issuerSubject, akid []byte) *x509.Certificate {
+	hashed := sha256.Sum256(append(issuerSubject, akid...))
 	ic.mu.RLock()
 	defer ic.mu.RUnlock()
-	return ic.hashed[hash]
+	return ic.hashed[hashed]
 }
 
 func (ic *issuerCache) add(issuer *x509.Certificate) error {
-	nameHash, pkiHash, err := common.HashNameAndPKI(sha256.New(), issuer.RawSubject, issuer.RawSubjectPublicKeyInfo)
-	if err != nil {
-		return err
-	}
-	hashed := sha256.Sum256(append(nameHash[:], pkiHash[:]...))
+	hashed := sha256.Sum256(append(issuer.RawSubject, issuer.SubjectKeyId...))
 	ic.mu.Lock()
 	defer ic.mu.Unlock()
 	ic.hashed[hashed] = issuer

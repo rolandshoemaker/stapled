@@ -18,7 +18,7 @@ func (s *stapled) Response(r *ocsp.Request) ([]byte, bool) {
 		return nil, false
 	}
 
-	response, err := s.c.AddFromRequest(r, s.upstreamResponders, s.stableBackings, s.client)
+	response, err := s.c.AddFromRequest(r, s.upstreamResponders)
 	if err != nil {
 		s.log.Err("Failed to add entry to cache from request: %s", err)
 		return nil, false
