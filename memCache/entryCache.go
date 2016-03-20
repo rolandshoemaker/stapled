@@ -337,7 +337,7 @@ func getIssuer(uri string) (*x509.Certificate, error) {
 }
 
 func (c *EntryCache) AddFromCertificate(filename string, issuer *x509.Certificate, responders []string) error {
-	e := NewEntry(c.log, c.clk) // XXX: fix clock
+	e := NewEntry(c.log, c.clk)
 	e.name = strings.TrimSuffix(
 		filepath.Base(filename),
 		filepath.Ext(filename),
@@ -375,7 +375,7 @@ func (c *EntryCache) AddFromCertificate(filename string, issuer *x509.Certificat
 }
 
 func (c *EntryCache) AddFromRequest(req *ocsp.Request, upstream []string) ([]byte, error) {
-	e := NewEntry(c.log, c.clk) // XXX: fix clock
+	e := NewEntry(c.log, c.clk)
 	e.serial = req.SerialNumber
 	var err error
 	e.request, err = req.Marshal()

@@ -16,7 +16,7 @@ import (
 )
 
 func TestCache(t *testing.T) {
-	c := NewEntryCache(clock.Clock, log.NewLogger("", "", 10, clock.Default()), time.Minute, nil, nil)
+	c := NewEntryCache(clock.Default(), log.NewLogger("", "", 10, clock.Default()), time.Minute, nil, nil, time.Minute)
 
 	issuer, err := common.ReadCertificate("../testdata/test-issuer.der")
 	if err != nil {
@@ -30,7 +30,7 @@ func TestCache(t *testing.T) {
 		response: []byte{5, 0, 1},
 	}
 
-	err = c.addMulti(e)
+	err = c.add(e)
 	if err != nil {
 		t.Fatalf("Failed to add entry to cache: %s", err)
 	}
@@ -57,7 +57,7 @@ func TestCache(t *testing.T) {
 		}
 	}
 
-	err = c.remove("test.der")
+	err = c.Remove("test.der")
 	if err != nil {
 		t.Fatalf("Failed to remove entry from cache: %s", err)
 	}
