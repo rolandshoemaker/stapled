@@ -228,7 +228,7 @@ type EntryCache struct {
 	mu             sync.RWMutex
 }
 
-func NewEntryCache(clk clock.Clock, logger *log.Logger, monitorTick time.Duration, stableBackings []stableCache.Cache, client *http.Client, timeout time.Duration) *EntryCache {
+func NewEntryCache(clk clock.Clock, logger *log.Logger, monitorTick time.Duration, stableBackings []stableCache.Cache, client *http.Client, timeout time.Duration, issuers []*x509.Certificate) *EntryCache {
 	c := &EntryCache{
 		log:            logger,
 		entries:        make(map[string]*Entry),
@@ -237,7 +237,7 @@ func NewEntryCache(clk clock.Clock, logger *log.Logger, monitorTick time.Duratio
 		client:         client,
 		requestTimeout: timeout,
 		clk:            clk,
-		issuers:        newIssuerCache(),
+		issuers:        newIssuerCache(issuers),
 	}
 	go c.monitor(monitorTick)
 	return c

@@ -11,8 +11,12 @@ type issuerCache struct {
 	mu     sync.RWMutex
 }
 
-func newIssuerCache() *issuerCache {
-	return &issuerCache{hashed: make(map[[32]byte]*x509.Certificate)}
+func newIssuerCache(issuers []*x509.Certificate) *issuerCache {
+	ic := &issuerCache{hashed: make(map[[32]byte]*x509.Certificate)}
+	for _, issuer := range issuers {
+		ic.add(issuer)
+	}
+	return ic
 }
 
 func (ic *issuerCache) get(issuerSubject, akid []byte) *x509.Certificate {

@@ -1,5 +1,6 @@
 definitions:
   cert-watch-folder: certs/
+  issuer-folder: issuers/
   certificates:
     # - certificate: certs/test.der
     #   issuer: issuer.der

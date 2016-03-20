@@ -72,9 +72,29 @@ func main() {
 		stableBackings = append(stableBackings, stableCache.NewDisk(logger, clk, conf.Disk.CacheFolder))
 	}
 
-	logger.Info("Loading definitions")
-	c := memCache.NewEntryCache(clk, logger, 1*time.Minute, stableBackings, client, timeout)
+	issuers := []*x509.Certificate{}
+	if conf.Definitions.IssuerFolder != "" {
+		files, err := ioutil.ReadDir(conf.Definitions.IssuerFolder)
+		if err != nil {
+			logger.Err("Failed to read directory '%s': %s", conf.Definitions.IssuerFolder, err)
+			os.Exit(1)
+		}
+		for _, fi := range files {
+			if fi.IsDir() {
+				continue
+			}
+			issuer, err := common.ReadCertificate(fi.Name())
+			if err != nil {
+				logger.Err("Failed to read issuer '%s': %s", fi.Name(), err)
+				continue
+			}
+			issuers = append(issuers, issuer)
+		}
+	}
 
+	c := memCache.NewEntryCache(clk, logger, 1*time.Minute, stableBackings, client, timeout, issuers)
+
+	logger.Info("Loading certificates")
 	for _, def := range conf.Definitions.Certificates {
 		var issuer *x509.Certificate
 		var responders []string
