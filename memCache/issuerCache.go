@@ -23,7 +23,11 @@ func (ic *issuerCache) get(issuerSubject, akid []byte) *x509.Certificate {
 }
 
 func (ic *issuerCache) add(issuer *x509.Certificate) error {
-	hashed := sha256.Sum256(append(issuer.RawSubject, issuer.SubjectKeyId...))
+	// work around for a bug of sorts in encoding/asn1
+	// https://github.com/golang/go/issues/14882
+	subj := make([]byte, len(issuer.RawSubject))
+	copy(subj, issuer.RawSubject)
+	hashed := sha256.Sum256(append(subj, issuer.SubjectKeyId...))
 	ic.mu.Lock()
 	defer ic.mu.Unlock()
 	ic.hashed[hashed] = issuer

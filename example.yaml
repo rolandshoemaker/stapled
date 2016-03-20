@@ -10,7 +10,7 @@ fetcher:
   # proxies:
   #  - user:pass@127.0.0.1:8080         # proxy to talk through
   upstream-responders:
-    - http://ocsp.int-x1.letsencrypt.org
+  #  - http://ocsp.int-x1.letsencrypt.org
 
 disk:
   cache-folder: ocsp-responses/

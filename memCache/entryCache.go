@@ -72,7 +72,6 @@ func (e *Entry) Init(stableBackings []stableCache.Cache, client *http.Client, ti
 			e.issuer.RawSubjectPublicKeyInfo,
 		)
 		if err != nil {
-			fmt.Println("hi?", e.issuer.RawSubject, e.issuer.RawSubjectPublicKeyInfo)
 			return err
 		}
 		ocspRequest := &ocsp.Request{crypto.SHA1, issuerNameHash, issuerKeyHash, e.serial}
