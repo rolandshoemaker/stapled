@@ -62,10 +62,10 @@ func NewEntry(log *log.Logger, clk clock.Clock) *Entry {
 }
 
 func (e *Entry) Init(stableBackings []stableCache.Cache, client *http.Client, timeout time.Duration) error {
+	if e.issuer == nil {
+		return errors.New("entry must have non-nil issuer")
+	}
 	if e.request == nil {
-		if e.issuer == nil {
-			return errors.New("if request isn't provided issuer must be non-nil")
-		}
 		issuerNameHash, issuerKeyHash, err := common.HashNameAndPKI(
 			crypto.SHA1.New(),
 			e.issuer.RawSubject,
@@ -354,7 +354,7 @@ func (c *EntryCache) AddFromCertificate(filename string, issuer *x509.Certificat
 	e.issuer = issuer
 	if e.issuer == nil {
 		// check issuer cache
-		if e.issuer = c.issuers.get(cert.RawIssuer, cert.AuthorityKeyId); e.issuer == nil {
+		if e.issuer = c.issuers.getFromCertificate(cert.RawIssuer, cert.AuthorityKeyId); e.issuer == nil {
 			// fetch from AIA
 			for _, issuerURL := range cert.IssuingCertificateURL {
 				e.issuer, err = getIssuer(issuerURL)
@@ -386,6 +386,10 @@ func (c *EntryCache) AddFromRequest(req *ocsp.Request, upstream []string) ([]byt
 	serialHash := sha256.Sum256(e.serial.Bytes())
 	key := sha256.Sum256(append(append(req.IssuerNameHash, req.IssuerKeyHash...), serialHash[:]...))
 	e.name = fmt.Sprintf("%X", key)
+	e.issuer = c.issuers.getFromRequest(req.IssuerNameHash, req.IssuerKeyHash)
+	if e.issuer == nil {
+		return nil, errors.New("No issuer in cache for request")
+	}
 	err = e.Init(c.StableBackings, c.client, c.requestTimeout)
 	if err != nil {
 		return nil, err
