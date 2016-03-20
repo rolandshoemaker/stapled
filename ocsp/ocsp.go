@@ -52,7 +52,7 @@ func Fetch(ctx context.Context, logger *log.Logger, responders []string, client 
 	backoffSeconds := 0
 	for {
 		if backoffSeconds > 0 {
-			logger.Info("[fetcher] Request failed, backing off for %d seconds", backoffSeconds)
+			logger.Info("[fetcher] Backing off for %d seconds", backoffSeconds)
 		}
 		select {
 		case <-ctx.Done():
@@ -88,11 +88,9 @@ func Fetch(ctx context.Context, logger *log.Logger, responders []string, client 
 		if resp.StatusCode != 200 && resp.StatusCode != 304 {
 			logger.Err("[fetcher] Request for '%s' got a non-200 response: %d", req.URL, resp.StatusCode)
 			backoffSeconds = 10
-			if resp.StatusCode == 503 {
-				if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
-					if seconds, err := strconv.Atoi(retryAfter); err == nil {
-						backoffSeconds = seconds
-					}
+			if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
+				if seconds, err := strconv.Atoi(retryAfter); err == nil {
+					backoffSeconds = seconds
 				}
 			}
 			continue

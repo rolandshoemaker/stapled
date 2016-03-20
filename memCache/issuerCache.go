@@ -27,7 +27,9 @@ func newIssuerCache(issuers []*x509.Certificate) *issuerCache {
 }
 
 func (ic *issuerCache) getFromCertificate(issuerSubject, akid []byte) *x509.Certificate {
-	hashed := sha256.Sum256(append(issuerSubject, akid...))
+	subj := make([]byte, len(issuerSubject))
+	copy(subj, issuerSubject)
+	hashed := sha256.Sum256(append(subj, akid...))
 	ic.mu.RLock()
 	defer ic.mu.RUnlock()
 	return ic.subjectPlusSKID[hashed]
