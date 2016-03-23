@@ -117,3 +117,16 @@ func HashNameAndPKI(h hash.Hash, name, pki []byte) ([]byte, []byte, error) {
 	pkiHash := h.Sum(nil)
 	return nameHash[:], pkiHash[:], nil
 }
+
+func GetIssuer(uri string) (*x509.Certificate, error) {
+	resp, err := http.Get(uri)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCertificate(body)
+}

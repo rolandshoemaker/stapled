@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"hash"
-	"io/ioutil"
 	"math/big"
 	mrand "math/rand"
 	"net/http"
@@ -323,19 +322,6 @@ func (c *EntryCache) add(e *Entry) error {
 	return nil
 }
 
-func getIssuer(uri string) (*x509.Certificate, error) {
-	resp, err := http.Get(uri)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return common.ParseCertificate(body)
-}
-
 func (c *EntryCache) AddFromCertificate(filename string, issuer *x509.Certificate, responders []string) error {
 	e := NewEntry(c.log, c.clk)
 	e.name = strings.TrimSuffix(
@@ -357,7 +343,7 @@ func (c *EntryCache) AddFromCertificate(filename string, issuer *x509.Certificat
 		if e.issuer = c.issuers.getFromCertificate(cert.RawIssuer, cert.AuthorityKeyId); e.issuer == nil {
 			// fetch from AIA
 			for _, issuerURL := range cert.IssuingCertificateURL {
-				e.issuer, err = getIssuer(issuerURL)
+				e.issuer, err = common.GetIssuer(issuerURL)
 				if err != nil {
 					e.log.Err("Failed to retrieve issuer from '%s': %s", issuerURL, err)
 					continue
