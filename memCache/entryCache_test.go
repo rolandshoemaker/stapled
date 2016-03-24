@@ -1,4 +1,4 @@
-package main
+package memCache
 
 import (
 	"bytes"
@@ -11,13 +11,14 @@ import (
 	"github.com/jmhodges/clock"
 	"golang.org/x/crypto/ocsp"
 
+	"github.com/rolandshoemaker/stapled/common"
 	"github.com/rolandshoemaker/stapled/log"
 )
 
-func TestCache(t *testing.T) {
-	c := newCache(log.NewLogger("", "", 10, clock.Default()), time.Minute, nil, nil)
+func TestEntryCache(t *testing.T) {
+	c := NewEntryCache(clock.Default(), log.NewLogger("", "", 10, clock.Default()), time.Minute, nil, nil, time.Minute, nil)
 
-	issuer, err := ReadCertificate("testdata/test-issuer.der")
+	issuer, err := common.ReadCertificate("../testdata/test-issuer.der")
 	if err != nil {
 		t.Fatalf("Failed to read test issuer: %s", err)
 	}
@@ -29,13 +30,13 @@ func TestCache(t *testing.T) {
 		response: []byte{5, 0, 1},
 	}
 
-	err = c.addMulti(e)
+	err = c.add(e)
 	if err != nil {
 		t.Fatalf("Failed to add entry to cache: %s", err)
 	}
 
 	for _, h := range []crypto.Hash{crypto.SHA1, crypto.SHA256, crypto.SHA384, crypto.SHA512} {
-		nameHash, pkHash, err := hashNameAndPKI(h.New(), issuer.RawSubject, issuer.RawSubjectPublicKeyInfo)
+		nameHash, pkHash, err := common.HashNameAndPKI(h.New(), issuer.RawSubject, issuer.RawSubjectPublicKeyInfo)
 		if err != nil {
 			t.Fatalf("Failed to hash subject and public key info: %s", err)
 		}
@@ -47,7 +48,7 @@ func TestCache(t *testing.T) {
 		if foundEntry != e {
 			t.Fatal("Cache returned wrong entry")
 		}
-		response, present := c.lookupResponse(req)
+		response, present := c.LookupResponse(req)
 		if !present {
 			t.Fatal("Didn't find response that should be in cache")
 		}
@@ -56,13 +57,13 @@ func TestCache(t *testing.T) {
 		}
 	}
 
-	err = c.remove("test.der")
+	err = c.Remove("test.der")
 	if err != nil {
 		t.Fatalf("Failed to remove entry from cache: %s", err)
 	}
 
 	for _, h := range []crypto.Hash{crypto.SHA1, crypto.SHA256, crypto.SHA384, crypto.SHA512} {
-		nameHash, pkHash, err := hashNameAndPKI(h.New(), issuer.RawSubject, issuer.RawSubjectPublicKeyInfo)
+		nameHash, pkHash, err := common.HashNameAndPKI(h.New(), issuer.RawSubject, issuer.RawSubjectPublicKeyInfo)
 		if err != nil {
 			t.Fatalf("Failed to hash subject and public key info: %s", err)
 		}
@@ -70,7 +71,7 @@ func TestCache(t *testing.T) {
 		if present {
 			t.Fatal("Found entry that should've been removed from cache")
 		}
-		_, present = c.lookupResponse(&ocsp.Request{h, nameHash, pkHash, e.serial})
+		_, present = c.LookupResponse(&ocsp.Request{h, nameHash, pkHash, e.serial})
 		if present {
 			t.Fatal("Found response that should've been removed from cache")
 		}
