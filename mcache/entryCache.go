@@ -1,4 +1,4 @@
-package memCache
+package mcache
 
 import (
 	"bytes"
@@ -24,9 +24,10 @@ import (
 	"github.com/rolandshoemaker/stapled/common"
 	"github.com/rolandshoemaker/stapled/log"
 	stapledOCSP "github.com/rolandshoemaker/stapled/ocsp"
-	"github.com/rolandshoemaker/stapled/stableCache"
+	"github.com/rolandshoemaker/stapled/scache"
 )
 
+// Entry represents a cache entry
 type Entry struct {
 	name     string
 	log      *log.Logger
@@ -53,6 +54,7 @@ type Entry struct {
 	mu *sync.RWMutex
 }
 
+// NewEntry creates a basic unpopulated Entry
 func NewEntry(log *log.Logger, clk clock.Clock) *Entry {
 	return &Entry{
 		log: log,
@@ -61,7 +63,7 @@ func NewEntry(log *log.Logger, clk clock.Clock) *Entry {
 	}
 }
 
-func (e *Entry) Init(ctx context.Context, stableBackings []stableCache.Cache, client *http.Client) error {
+func (e *Entry) init(ctx context.Context, stableBackings []scache.Cache, client *http.Client) error {
 	if e.issuer == nil {
 		return errors.New("entry must have non-nil issuer")
 	}
@@ -74,7 +76,12 @@ func (e *Entry) Init(ctx context.Context, stableBackings []stableCache.Cache, cl
 		if err != nil {
 			return err
 		}
-		ocspRequest := &ocsp.Request{crypto.SHA1, issuerNameHash, issuerKeyHash, e.serial}
+		ocspRequest := &ocsp.Request{
+			HashAlgorithm:  crypto.SHA1,
+			IssuerNameHash: issuerNameHash,
+			IssuerKeyHash:  issuerKeyHash,
+			SerialNumber:   e.serial,
+		}
 		e.request, err = ocspRequest.Marshal()
 		if err != nil {
 			return err
@@ -111,7 +118,7 @@ func (e *Entry) err(msg string, args ...interface{}) {
 
 // updateResponse updates the actual response body/metadata
 // stored in the entry
-func (e *Entry) updateResponse(eTag string, maxAge int, resp *ocsp.Response, respBytes []byte, stableBackings []stableCache.Cache) {
+func (e *Entry) updateResponse(eTag string, maxAge int, resp *ocsp.Response, respBytes []byte, stableBackings []scache.Cache) {
 	e.info("Updating with new response, expires in %s", common.HumanDuration(resp.NextUpdate.Sub(e.clk.Now())))
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -130,7 +137,7 @@ func (e *Entry) updateResponse(eTag string, maxAge int, resp *ocsp.Response, res
 
 // refreshResponse fetches and verifies a response and replaces
 // the current response if it is valid and newer
-func (e *Entry) refreshResponse(ctx context.Context, stableBackings []stableCache.Cache, client *http.Client) error {
+func (e *Entry) refreshResponse(ctx context.Context, stableBackings []scache.Cache, client *http.Client) error {
 	if !e.timeToUpdate() {
 		return nil
 	}
@@ -167,7 +174,7 @@ func (e *Entry) refreshResponse(ctx context.Context, stableBackings []stableCach
 // refreshAndLog is a small wrapper around refreshResponse
 // for when a caller wants to run it in a goroutine and doesn't
 // want to handle the returned error itself
-func (e *Entry) refreshAndLog(ctx context.Context, stableBackings []stableCache.Cache, client *http.Client) {
+func (e *Entry) refreshAndLog(ctx context.Context, stableBackings []scache.Cache, client *http.Client) {
 	err := e.refreshResponse(ctx, stableBackings, client)
 	if err != nil {
 		e.err("Failed to refresh response", err)
@@ -214,19 +221,22 @@ func (e *Entry) timeToUpdate() bool {
 	return false
 }
 
+// EntryCache holds the entry and issuer caches with various other
+// required state
 type EntryCache struct {
 	log            *log.Logger
 	clk            clock.Clock
 	requestTimeout time.Duration
 	entries        map[string]*Entry   // one-to-one map keyed on name -> entry
 	lookupMap      map[[32]byte]*Entry // many-to-one map keyed on sha256 hashed OCSP requests -> entry
-	StableBackings []stableCache.Cache
+	StableBackings []scache.Cache
 	issuers        *issuerCache
 	client         *http.Client
 	mu             sync.RWMutex
 }
 
-func NewEntryCache(clk clock.Clock, logger *log.Logger, monitorTick time.Duration, stableBackings []stableCache.Cache, client *http.Client, timeout time.Duration, issuers []*x509.Certificate) *EntryCache {
+// NewEntryCache constructs a EntryCache, starts the monitor, and returns it
+func NewEntryCache(clk clock.Clock, logger *log.Logger, monitorTick time.Duration, stableBackings []scache.Cache, client *http.Client, timeout time.Duration, issuers []*x509.Certificate) *EntryCache {
 	c := &EntryCache{
 		log:            logger,
 		entries:        make(map[string]*Entry),
@@ -277,6 +287,8 @@ func (c *EntryCache) lookup(request *ocsp.Request) (*Entry, bool) {
 	return e, present
 }
 
+// LookupResponse looks up a entry in the cache and returns it's
+// response if the entry exists
 func (c *EntryCache) LookupResponse(request *ocsp.Request) ([]byte, bool) {
 	e, present := c.lookup(request)
 	if present {
@@ -334,6 +346,9 @@ func getIssuer(uri string) (*x509.Certificate, error) {
 	return common.ParseCertificate(body)
 }
 
+// AddFromCertificate creates an entry from a certificate on disk and
+// adds it to the cache, a issuer or set of OCSP responders can be
+// provided
 func (c *EntryCache) AddFromCertificate(filename string, issuer *x509.Certificate, responders []string) error {
 	e := NewEntry(c.log, c.clk)
 	e.name = strings.TrimSuffix(
@@ -367,13 +382,15 @@ func (c *EntryCache) AddFromCertificate(filename string, issuer *x509.Certificat
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), c.requestTimeout)
 	defer cancel()
-	err = e.Init(ctx, c.StableBackings, c.client)
+	err = e.init(ctx, c.StableBackings, c.client)
 	if err != nil {
 		return err
 	}
 	return c.add(e)
 }
 
+// AddFromRequest creates an entry from a OCSP request and adds it to
+// the cache, a set of upstream OCSP responders can be provided
 func (c *EntryCache) AddFromRequest(req *ocsp.Request, upstream []string) ([]byte, error) {
 	e := NewEntry(c.log, c.clk)
 	e.serial = req.SerialNumber
@@ -392,7 +409,7 @@ func (c *EntryCache) AddFromRequest(req *ocsp.Request, upstream []string) ([]byt
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), c.requestTimeout)
 	defer cancel()
-	err = e.Init(ctx, c.StableBackings, c.client)
+	err = e.init(ctx, c.StableBackings, c.client)
 	if err != nil {
 		return nil, err
 	}
@@ -400,6 +417,7 @@ func (c *EntryCache) AddFromRequest(req *ocsp.Request, upstream []string) ([]byt
 	return e.response, nil
 }
 
+// Remove removes a entry from the cache
 func (c *EntryCache) Remove(name string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()

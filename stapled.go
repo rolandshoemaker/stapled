@@ -8,13 +8,13 @@ import (
 	"github.com/jmhodges/clock"
 
 	"github.com/rolandshoemaker/stapled/log"
-	"github.com/rolandshoemaker/stapled/memCache"
+	"github.com/rolandshoemaker/stapled/mcache"
 )
 
 type stapled struct {
 	log                *log.Logger
 	clk                clock.Clock
-	c                  *memCache.EntryCache
+	c                  *mcache.EntryCache
 	responder          *http.Server
 	certFolderWatcher  *dirWatcher
 	client             *http.Client
@@ -22,7 +22,7 @@ type stapled struct {
 	upstreamResponders []string
 }
 
-func New(c *memCache.EntryCache, logger *log.Logger, clk clock.Clock, httpAddr string, responders []string, certFolder string) (*stapled, error) {
+func New(c *mcache.EntryCache, logger *log.Logger, clk clock.Clock, httpAddr string, responders []string, certFolder string) (*stapled, error) {
 	s := &stapled{
 		log:                logger,
 		clk:                clk,

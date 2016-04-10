@@ -19,6 +19,8 @@ import (
 	"github.com/rolandshoemaker/stapled/log"
 )
 
+// VerifyResponse verifies a OCSP response is valid and for the expected
+// certificate
 func VerifyResponse(now time.Time, serial *big.Int, resp *ocsp.Response) error {
 	if resp.ThisUpdate.After(now) {
 		return fmt.Errorf("malformed OCSP response: ThisUpdate is in the future (%s after %s)", resp.ThisUpdate, now)
@@ -47,6 +49,8 @@ func randomResponder(responders []string) string {
 	return responders[mrand.Intn(len(responders))]
 }
 
+// Fetch requests a OCSP response from a upstream responder. It will make multiple
+// requests before the Context expires if requests timeout
 func Fetch(ctx context.Context, logger *log.Logger, responders []string, client *http.Client, request []byte, etag string, issuer *x509.Certificate) (*ocsp.Response, []byte, string, int, error) {
 	responder := randomResponder(responders)
 	backoffSeconds := 0
@@ -89,7 +93,7 @@ func Fetch(ctx context.Context, logger *log.Logger, responders []string, client 
 			logger.Err("[fetcher] Request for '%s' got a non-200 response: %d", req.URL, resp.StatusCode)
 			backoffSeconds = 10
 			if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
-				if seconds, err := strconv.Atoi(retryAfter); err == nil {
+				if seconds, err := strconv.Atoi(retryAfter); err == nil && seconds > 0 {
 					backoffSeconds = seconds
 				}
 			}
@@ -111,7 +115,7 @@ func Fetch(ctx context.Context, logger *log.Logger, responders []string, client 
 			eTag, cacheControl := resp.Header.Get("ETag"), parseCacheControl(resp.Header.Get("Cache-Control"))
 			return ocspResp, body, eTag, cacheControl, nil
 		}
-		logger.Err("[fetcher] Request for '%s' got a invalid OCSP response status: %s", req.URL, ocsp.ResponseStatus(ocspResp.Status).String())
+		logger.Err("[fetcher] Request for '%s' returned an invalid OCSP response status: %s", req.URL, ocsp.ResponseStatus(ocspResp.Status).String())
 		backoffSeconds = 10
 	}
 }

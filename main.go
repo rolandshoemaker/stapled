@@ -16,8 +16,8 @@ import (
 	"github.com/rolandshoemaker/stapled/common"
 	"github.com/rolandshoemaker/stapled/config"
 	"github.com/rolandshoemaker/stapled/log"
-	"github.com/rolandshoemaker/stapled/memCache"
-	"github.com/rolandshoemaker/stapled/stableCache"
+	"github.com/rolandshoemaker/stapled/mcache"
+	"github.com/rolandshoemaker/stapled/scache"
 )
 
 func main() {
@@ -67,9 +67,9 @@ func main() {
 		}
 	}
 
-	stableBackings := []stableCache.Cache{}
+	stableBackings := []scache.Cache{}
 	if conf.Disk.CacheFolder != "" {
-		stableBackings = append(stableBackings, stableCache.NewDisk(logger, clk, conf.Disk.CacheFolder))
+		stableBackings = append(stableBackings, scache.NewDisk(logger, clk, conf.Disk.CacheFolder))
 	}
 
 	issuers := []*x509.Certificate{}
@@ -92,7 +92,7 @@ func main() {
 		}
 	}
 
-	c := memCache.NewEntryCache(clk, logger, 1*time.Minute, stableBackings, client, timeout, issuers)
+	c := mcache.NewEntryCache(clk, logger, 1*time.Minute, stableBackings, client, timeout, issuers)
 
 	logger.Info("Loading certificates")
 	for _, def := range conf.Definitions.Certificates {

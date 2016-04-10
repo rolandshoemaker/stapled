@@ -1,4 +1,4 @@
-package memCache
+package mcache
 
 import (
 	"crypto"
