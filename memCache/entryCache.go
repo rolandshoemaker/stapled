@@ -61,7 +61,7 @@ func NewEntry(log *log.Logger, clk clock.Clock) *Entry {
 	}
 }
 
-func (e *Entry) Init(stableBackings []stableCache.Cache, client *http.Client, timeout time.Duration) error {
+func (e *Entry) Init(ctx context.Context, stableBackings []stableCache.Cache, client *http.Client) error {
 	if e.issuer == nil {
 		return errors.New("entry must have non-nil issuer")
 	}
@@ -91,7 +91,7 @@ func (e *Entry) Init(stableBackings []stableCache.Cache, client *http.Client, ti
 		e.updateResponse("", 0, resp, respBytes, nil)
 		return nil // return first response from a stable cache backing
 	}
-	err := e.refreshResponse(stableBackings, client, timeout)
+	err := e.refreshResponse(ctx, stableBackings, client)
 	if err != nil {
 		return err
 	}
@@ -130,12 +130,10 @@ func (e *Entry) updateResponse(eTag string, maxAge int, resp *ocsp.Response, res
 
 // refreshResponse fetches and verifies a response and replaces
 // the current response if it is valid and newer
-func (e *Entry) refreshResponse(stableBackings []stableCache.Cache, client *http.Client, timeout time.Duration) error {
+func (e *Entry) refreshResponse(ctx context.Context, stableBackings []stableCache.Cache, client *http.Client) error {
 	if !e.timeToUpdate() {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
 	resp, respBytes, eTag, maxAge, err := stapledOCSP.Fetch(
 		ctx,
 		e.log,
@@ -169,8 +167,8 @@ func (e *Entry) refreshResponse(stableBackings []stableCache.Cache, client *http
 // refreshAndLog is a small wrapper around refreshResponse
 // for when a caller wants to run it in a goroutine and doesn't
 // want to handle the returned error itself
-func (e *Entry) refreshAndLog(stableBackings []stableCache.Cache, client *http.Client, timeout time.Duration) {
-	err := e.refreshResponse(stableBackings, client, timeout)
+func (e *Entry) refreshAndLog(ctx context.Context, stableBackings []stableCache.Cache, client *http.Client) {
+	err := e.refreshResponse(ctx, stableBackings, client)
 	if err != nil {
 		e.err("Failed to refresh response", err)
 	}
@@ -367,7 +365,9 @@ func (c *EntryCache) AddFromCertificate(filename string, issuer *x509.Certificat
 			}
 		}
 	}
-	err = e.Init(c.StableBackings, c.client, c.requestTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), c.requestTimeout)
+	defer cancel()
+	err = e.Init(ctx, c.StableBackings, c.client)
 	if err != nil {
 		return err
 	}
@@ -390,7 +390,9 @@ func (c *EntryCache) AddFromRequest(req *ocsp.Request, upstream []string) ([]byt
 	if e.issuer == nil {
 		return nil, errors.New("No issuer in cache for request")
 	}
-	err = e.Init(c.StableBackings, c.client, c.requestTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), c.requestTimeout)
+	defer cancel()
+	err = e.Init(ctx, c.StableBackings, c.client)
 	if err != nil {
 		return nil, err
 	}
@@ -424,7 +426,11 @@ func (c *EntryCache) monitor(tick time.Duration) {
 		c.mu.RLock()
 		defer c.mu.RUnlock()
 		for _, entry := range c.entries {
-			go entry.refreshAndLog(c.StableBackings, c.client, c.requestTimeout)
+			go func(e *Entry) {
+				ctx, cancel := context.WithTimeout(context.Background(), c.requestTimeout)
+				defer cancel()
+				e.refreshAndLog(ctx, c.StableBackings, c.client)
+			}(entry)
 		}
 	}
 }
