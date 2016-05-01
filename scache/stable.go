@@ -1,4 +1,4 @@
-package stableCache
+package scache
 
 import (
 	"crypto/x509"
@@ -16,11 +16,13 @@ import (
 	stapledOCSP "github.com/rolandshoemaker/stapled/ocsp"
 )
 
+// Cache represents a stable cache
 type Cache interface {
 	Read(string, *big.Int, *x509.Certificate) (*ocsp.Response, []byte)
 	Write(string, []byte)
 }
 
+// DiskCache is a on disk stable cache
 type DiskCache struct {
 	logger *log.Logger
 	clk    clock.Clock
@@ -28,10 +30,12 @@ type DiskCache struct {
 	failer common.Failer
 }
 
+// NewDisk creates a DiskCache
 func NewDisk(logger *log.Logger, clk clock.Clock, path string) *DiskCache {
 	return &DiskCache{logger, clk, path, &common.BasicFailer{}}
 }
 
+// Read reads a OCSP response from disk
 func (dc *DiskCache) Read(name string, serial *big.Int, issuer *x509.Certificate) (*ocsp.Response, []byte) {
 	name = path.Join(dc.path, name) + ".resp"
 	response, err := ioutil.ReadFile(name)
@@ -55,6 +59,7 @@ func (dc *DiskCache) Read(name string, serial *big.Int, issuer *x509.Certificate
 	return parsed, response
 }
 
+// Write writes a OCSP response to disk
 func (dc *DiskCache) Write(name string, content []byte) {
 	name = path.Join(dc.path, name) + ".resp"
 	tmpName := fmt.Sprintf("%s.tmp", name)

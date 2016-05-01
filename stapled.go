@@ -8,40 +8,29 @@ import (
 	"github.com/jmhodges/clock"
 
 	"github.com/rolandshoemaker/stapled/log"
-	"github.com/rolandshoemaker/stapled/stableCache"
+	"github.com/rolandshoemaker/stapled/mcache"
 )
 
 type stapled struct {
 	log                *log.Logger
 	clk                clock.Clock
-	c                  *cache
+	c                  *mcache.EntryCache
 	responder          *http.Server
 	certFolderWatcher  *dirWatcher
-	stableBackings     []stableCache.Cache
 	client             *http.Client
-	clientTimeout      time.Duration
 	entryMonitorTick   time.Duration
 	upstreamResponders []string
 }
 
-func New(log *log.Logger, clk clock.Clock, httpAddr string, timeout, monitorTick time.Duration, responders []string, dontDieOnStale bool, certFolder string, entries []*Entry, stableBackings []stableCache.Cache, client *http.Client) (*stapled, error) {
-	c := newCache(log, monitorTick, stableBackings, client)
+func New(c *mcache.EntryCache, logger *log.Logger, clk clock.Clock, httpAddr string, responders []string, certFolder string) (*stapled, error) {
 	s := &stapled{
-		log:                log,
+		log:                logger,
 		clk:                clk,
 		c:                  c,
-		clientTimeout:      timeout,
 		upstreamResponders: responders,
 		certFolderWatcher:  newDirWatcher(certFolder),
-		stableBackings:     stableBackings,
-		client:             client,
 	}
-	// add entries to cache
-	for _, e := range entries {
-		c.addMulti(e)
-	}
-	// initialize OCSP repsonder
-	s.initResponder(httpAddr, log)
+	s.initResponder(httpAddr, logger)
 	return s, nil
 }
 
@@ -54,25 +43,13 @@ func (s *stapled) checkCertDirectory() {
 		return
 	}
 	for _, a := range added {
-		// create entry + add to cache
-		e := NewEntry(s.log, s.clk, s.clientTimeout)
-		err = e.loadCertificate(a)
-		if err != nil {
-			s.log.Err("Failed to load new certificate '%s': %s", a, err)
-			continue
-		}
-		err = e.Init(s.c.StableBackings, s.client)
-		if err != nil {
-			s.log.Err("Failed to initialize entry for new certificate '%s': %s", a, err)
-			continue
-		}
-		err = s.c.addMulti(e)
+		err = s.c.AddFromCertificate(a, nil, s.upstreamResponders)
 		if err != nil {
 			s.log.Err("Failed to add entry to cache for new certificate '%s': %s", a, err)
 		}
 	}
 	for _, r := range removed {
-		s.c.remove(r)
+		s.c.Remove(r)
 	}
 }
 

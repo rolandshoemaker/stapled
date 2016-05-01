@@ -1,4 +1,4 @@
-package stableCache
+package scache
 
 import (
 	"io/ioutil"

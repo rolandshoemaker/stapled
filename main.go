@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/x509"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -13,8 +14,10 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/rolandshoemaker/stapled/common"
+	"github.com/rolandshoemaker/stapled/config"
 	"github.com/rolandshoemaker/stapled/log"
-	"github.com/rolandshoemaker/stapled/stableCache"
+	"github.com/rolandshoemaker/stapled/mcache"
+	"github.com/rolandshoemaker/stapled/scache"
 )
 
 func main() {
@@ -28,19 +31,19 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Failed to read configuration file '%s': %s", configFilename, err)
 		os.Exit(1)
 	}
-	var config Configuration
-	err = yaml.Unmarshal(configBytes, &config)
+	var conf config.Configuration
+	err = yaml.Unmarshal(configBytes, &conf)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to parse configuration file: %s", err)
 		os.Exit(1)
 	}
 
 	clk := clock.Default()
-	logger := log.NewLogger(config.Syslog.Network, config.Syslog.Addr, config.Syslog.StdoutLevel, clk)
+	logger := log.NewLogger(conf.Syslog.Network, conf.Syslog.Addr, conf.Syslog.StdoutLevel, clk)
 
 	timeout := time.Second * time.Duration(10)
-	if config.Fetcher.Timeout != "" {
-		timeoutSeconds, err := time.ParseDuration(config.Fetcher.Timeout)
+	if conf.Fetcher.Timeout != "" {
+		timeoutSeconds, err := time.ParseDuration(conf.Fetcher.Timeout)
 		if err != nil {
 			logger.Err("Failed to parse timeout: %s", err)
 			os.Exit(1)
@@ -49,8 +52,8 @@ func main() {
 	}
 
 	client := new(http.Client)
-	if len(config.Fetcher.Proxies) != 0 {
-		proxyFunc, err := common.ProxyFunc(config.Fetcher.Proxies)
+	if len(conf.Fetcher.Proxies) != 0 {
+		proxyFunc, err := common.ProxyFunc(conf.Fetcher.Proxies)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to parsed proxy URI: %s", err)
 		}
@@ -64,41 +67,59 @@ func main() {
 		}
 	}
 
-	stableBackings := []stableCache.Cache{}
-	if config.Disk.CacheFolder != "" {
-		stableBackings = append(stableBackings, stableCache.NewDisk(logger, clk, config.Disk.CacheFolder))
+	stableBackings := []scache.Cache{}
+	if conf.Disk.CacheFolder != "" {
+		stableBackings = append(stableBackings, scache.NewDisk(logger, clk, conf.Disk.CacheFolder))
 	}
 
-	logger.Info("Loading definitions")
-	entries := []*Entry{}
-	for _, def := range config.Definitions.Certificates {
-		e := NewEntry(logger, clk, timeout)
-		err = e.FromCertDef(def, config.Fetcher.UpstreamResponders)
+	issuers := []*x509.Certificate{}
+	if conf.Definitions.IssuerFolder != "" {
+		files, err := ioutil.ReadDir(conf.Definitions.IssuerFolder)
 		if err != nil {
-			logger.Err("Failed to populate entry: %s", err)
+			logger.Err("Failed to read directory '%s': %s", conf.Definitions.IssuerFolder, err)
 			os.Exit(1)
 		}
-		err = e.Init(stableBackings, client)
+		for _, fi := range files {
+			if fi.IsDir() {
+				continue
+			}
+			issuer, err := common.ReadCertificate(fi.Name())
+			if err != nil {
+				logger.Err("Failed to read issuer '%s': %s", fi.Name(), err)
+				continue
+			}
+			issuers = append(issuers, issuer)
+		}
+	}
+
+	c := mcache.NewEntryCache(clk, logger, 1*time.Minute, stableBackings, client, timeout, issuers)
+
+	logger.Info("Loading certificates")
+	for _, def := range conf.Definitions.Certificates {
+		var issuer *x509.Certificate
+		var responders []string
+		if def.Issuer != "" {
+			issuer, err = common.ReadCertificate(def.Issuer)
+			if err != nil {
+				logger.Err("Failed to load issuer '%s': %s", def.Issuer, err)
+				os.Exit(1)
+			}
+		}
+		err = c.AddFromCertificate(def.Certificate, issuer, responders)
 		if err != nil {
-			logger.Err("Failed to initialize entry: %s", err)
+			logger.Err("Failed to load entry: %s", err)
 			os.Exit(1)
 		}
-		entries = append(entries, e)
 	}
 
 	logger.Info("Initializing stapled")
 	s, err := New(
+		c,
 		logger,
 		clk,
-		config.HTTP.Addr,
-		timeout,
-		1*time.Minute,
-		config.Fetcher.UpstreamResponders,
-		config.DontDieOnStaleResponse,
-		config.Definitions.CertWatchFolder,
-		entries,
-		stableBackings,
-		client,
+		conf.HTTP.Addr,
+		conf.Fetcher.UpstreamResponders,
+		conf.Definitions.CertWatchFolder,
 	)
 	if err != nil {
 		logger.Err("Failed to initialize stapled: %s", err)

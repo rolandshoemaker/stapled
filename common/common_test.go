@@ -1,4 +1,4 @@
-package main
+package common
 
 import (
 	"bytes"
@@ -7,22 +7,22 @@ import (
 )
 
 func TestReadCertificate(t *testing.T) {
-	_, err := ReadCertificate("testdata/test-issuer.der")
+	_, err := ReadCertificate("../testdata/test-issuer.der")
 	if err != nil {
 		t.Fatalf("Failed to read DER certificate: %s", err)
 	}
-	_, err = ReadCertificate("testdata/test-issuer.pem")
+	_, err = ReadCertificate("../testdata/test-issuer.pem")
 	if err != nil {
 		t.Fatalf("Failed to read PEM certificate: %s", err)
 	}
 }
 
 func TestHashNameAndPKI(t *testing.T) {
-	issuer, err := ReadCertificate("testdata/test-issuer.der")
+	issuer, err := ReadCertificate("../testdata/test-issuer.der")
 	if err != nil {
 		t.Fatalf("Failed to read test issuer: %s", err)
 	}
-	nameHash, pkiHash, err := hashNameAndPKI(crypto.SHA1.New(), issuer.RawSubject, issuer.RawSubjectPublicKeyInfo)
+	nameHash, pkiHash, err := HashNameAndPKI(crypto.SHA1.New(), issuer.RawSubject, issuer.RawSubjectPublicKeyInfo)
 	if err != nil {
 		t.Fatalf("Failed to hash subject and public key info: %s", err)
 	}
