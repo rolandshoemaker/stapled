@@ -1,24 +1,26 @@
 package mcache
 
 import (
-	"crypto"
 	"crypto/sha256"
 	"crypto/x509"
 	"sync"
 
 	"github.com/rolandshoemaker/stapled/common"
+	"github.com/rolandshoemaker/stapled/config"
 )
 
 type issuerCache struct {
 	subjectPlusSKID map[[32]byte]*x509.Certificate
 	subjectPlusSPKI map[[32]byte]*x509.Certificate
+	hashes          config.SupportedHashes
 	mu              sync.RWMutex
 }
 
-func newIssuerCache(issuers []*x509.Certificate) *issuerCache {
+func newIssuerCache(issuers []*x509.Certificate, supportedHashes config.SupportedHashes) *issuerCache {
 	ic := &issuerCache{
 		subjectPlusSKID: make(map[[32]byte]*x509.Certificate),
 		subjectPlusSPKI: make(map[[32]byte]*x509.Certificate),
+		hashes:          supportedHashes,
 	}
 	for _, issuer := range issuers {
 		ic.add(issuer)
@@ -42,9 +44,9 @@ func (ic *issuerCache) getFromRequest(issuerSubjectHash, spkiHash []byte) *x509.
 	return ic.subjectPlusSPKI[hashed]
 }
 
-func allIssuerHashes(i *x509.Certificate) ([][32]byte, error) {
+func allIssuerHashes(i *x509.Certificate, supportedHashes config.SupportedHashes) ([][32]byte, error) {
 	hashes := [][32]byte{}
-	for _, h := range []crypto.Hash{crypto.SHA1, crypto.SHA256, crypto.SHA384, crypto.SHA512} {
+	for _, h := range supportedHashes {
 		name, spki, err := common.HashNameAndPKI(h.New(), i.RawSubject, i.RawSubjectPublicKeyInfo)
 		if err != nil {
 			return nil, err
@@ -60,7 +62,7 @@ func (ic *issuerCache) add(issuer *x509.Certificate) error {
 	subj := make([]byte, len(issuer.RawSubject))
 	copy(subj, issuer.RawSubject)
 	spskid := sha256.Sum256(append(subj, issuer.SubjectKeyId...))
-	otherHashes, err := allIssuerHashes(issuer)
+	otherHashes, err := allIssuerHashes(issuer, ic.hashes)
 	if err != nil {
 		return err
 	}

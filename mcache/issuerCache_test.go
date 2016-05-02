@@ -29,13 +29,13 @@ func TestIssuerCache(t *testing.T) {
 		t.Fatalf("Failed to read ../testdata/test-issuer.der: %s", err)
 	}
 
-	ic := newIssuerCache(nil)
+	ic := newIssuerCache(nil, everyHash)
 	err = ic.add(testIssuer)
 	if err != nil {
 		t.Fatalf("Failed to add test issuer to cache: %s", err)
 	}
 	tester(ic, testIssuer)
 
-	ic = newIssuerCache([]*x509.Certificate{testIssuer})
+	ic = newIssuerCache([]*x509.Certificate{testIssuer}, everyHash)
 	tester(ic, testIssuer)
 }
