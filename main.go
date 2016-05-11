@@ -42,13 +42,8 @@ func main() {
 	logger := log.NewLogger(conf.Syslog.Network, conf.Syslog.Addr, conf.Syslog.StdoutLevel, clk)
 
 	timeout := time.Second * time.Duration(10)
-	if conf.Fetcher.Timeout != "" {
-		timeoutSeconds, err := time.ParseDuration(conf.Fetcher.Timeout)
-		if err != nil {
-			logger.Err("Failed to parse timeout: %s", err)
-			os.Exit(1)
-		}
-		timeout = time.Second * time.Duration(timeoutSeconds)
+	if conf.Fetcher.Timeout.Duration != 0 {
+		timeout = conf.Fetcher.Timeout.Duration
 	}
 
 	client := new(http.Client)
