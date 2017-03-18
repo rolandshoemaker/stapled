@@ -12,11 +12,14 @@ import (
 	"golang.org/x/crypto/ocsp"
 
 	"github.com/rolandshoemaker/stapled/common"
+
 	"github.com/rolandshoemaker/stapled/log"
 )
 
+var everyHash = []crypto.Hash{crypto.SHA1, crypto.SHA256, crypto.SHA384, crypto.SHA512}
+
 func TestEntryCache(t *testing.T) {
-	c := NewEntryCache(clock.Default(), log.NewLogger("", "", 10, clock.Default()), time.Minute, nil, nil, time.Minute, nil)
+	c := NewEntryCache(clock.Default(), log.NewLogger("", "", 10, clock.Default()), time.Minute, nil, nil, time.Minute, nil, everyHash)
 
 	issuer, err := common.ReadCertificate("../testdata/test-issuer.der")
 	if err != nil {

@@ -22,6 +22,7 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/rolandshoemaker/stapled/common"
+	"github.com/rolandshoemaker/stapled/config"
 	"github.com/rolandshoemaker/stapled/log"
 	stapledOCSP "github.com/rolandshoemaker/stapled/ocsp"
 	"github.com/rolandshoemaker/stapled/scache"
@@ -232,11 +233,12 @@ type EntryCache struct {
 	StableBackings []scache.Cache
 	issuers        *issuerCache
 	client         *http.Client
+	hashes         config.SupportedHashes
 	mu             sync.RWMutex
 }
 
 // NewEntryCache constructs a EntryCache, starts the monitor, and returns it
-func NewEntryCache(clk clock.Clock, logger *log.Logger, monitorTick time.Duration, stableBackings []scache.Cache, client *http.Client, timeout time.Duration, issuers []*x509.Certificate) *EntryCache {
+func NewEntryCache(clk clock.Clock, logger *log.Logger, monitorTick time.Duration, stableBackings []scache.Cache, client *http.Client, timeout time.Duration, issuers []*x509.Certificate, supportedHashes config.SupportedHashes) *EntryCache {
 	c := &EntryCache{
 		log:            logger,
 		entries:        make(map[string]*Entry),
@@ -245,7 +247,8 @@ func NewEntryCache(clk clock.Clock, logger *log.Logger, monitorTick time.Duratio
 		client:         client,
 		requestTimeout: timeout,
 		clk:            clk,
-		issuers:        newIssuerCache(issuers),
+		issuers:        newIssuerCache(issuers, supportedHashes),
+		hashes:         supportedHashes,
 	}
 	go c.monitor(monitorTick)
 	return c
@@ -260,11 +263,11 @@ func hashEntry(h hash.Hash, name, pkiBytes []byte, serial *big.Int) ([32]byte, e
 	return sha256.Sum256(append(append(issuerNameHash, issuerKeyHash...), serialHash[:]...)), nil
 }
 
-func allHashes(e *Entry) ([][32]byte, error) {
+func allHashes(e *Entry, supportedHashes config.SupportedHashes) ([][32]byte, error) {
 	results := [][32]byte{}
 	// these should be configurable in case people don't care about
 	// supporting all of these hash algs
-	for _, h := range []crypto.Hash{crypto.SHA1, crypto.SHA256, crypto.SHA384, crypto.SHA512} {
+	for _, h := range supportedHashes {
 		hashed, err := hashEntry(h.New(), e.issuer.RawSubject, e.issuer.RawSubjectPublicKeyInfo, e.serial)
 		if err != nil {
 			return nil, err
@@ -314,7 +317,7 @@ func (c *EntryCache) addSingle(e *Entry, key [32]byte) {
 // this cache structure seems kind of gross but... idk i think it's prob
 // best for now (until I can think of something better :/)
 func (c *EntryCache) add(e *Entry) error {
-	hashes, err := allHashes(e)
+	hashes, err := allHashes(e, c.hashes)
 	if err != nil {
 		return err
 	}
@@ -427,7 +430,7 @@ func (c *EntryCache) Remove(name string) error {
 	}
 	e.mu.Lock()
 	delete(c.entries, name)
-	hashes, err := allHashes(e)
+	hashes, err := allHashes(e, c.hashes)
 	if err != nil {
 		return err
 	}

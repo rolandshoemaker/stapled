@@ -21,7 +21,13 @@ http:
 
 stats-addr: 0.0.0.0:7777
 
-# syslog:
-#   network: tcp
-#   addr: 127.0.0.1:2020
-#   stdout-level: 5
+supported-hashes:
+  sha1: true
+  sha256: true
+  sha384: true
+  sha512: true
+
+syslog:
+  network: tcp
+  addr: 127.0.0.1:2020
+  stdout-level: 5
