@@ -2,9 +2,13 @@ package ocsp
 
 import (
 	"math/big"
+	"net/http"
 	"testing"
 	"time"
 
+	"github.com/rolandshoemaker/stapled/log"
+
+	"github.com/jmhodges/clock"
 	"golang.org/x/crypto/ocsp"
 )
 
@@ -60,3 +64,28 @@ func TestParseCacheControl(t *testing.T) {
 	}
 
 }
+
+func TestRandomResponder(t *testing.T) {
+	testResponders := []string{"a", "b"}
+	random := randomResponder(testResponders)
+	if !(random == "a" || random == "b") {
+		t.Fatalf("randomResponder returned something that wasn't in the provided slice: %q", random)
+	}
+}
+
+// func fetchHandler(w http.ResponseWriter, r *http.Request) {
+
+// }
+
+// func TestFetch(t *testing.T) {
+// 	logger := log.NewLogger("", "", 0, clock.Default())
+// 	c := http.Client{}
+
+// 	http.HandleFunc("/", fetchHandler)
+// 	go func() {
+// 		err := http.ListenAndServe("localhost:8080", nil)
+// 		if err != nil {
+// 			t.Fatalf("HTTP test server failed: %s", err)
+// 		}
+// 	}()
+// }
