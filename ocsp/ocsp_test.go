@@ -2,13 +2,13 @@ package ocsp
 
 import (
 	"math/big"
-	"net/http"
+	// "net/http"
 	"testing"
 	"time"
 
-	"github.com/rolandshoemaker/stapled/log"
+	// "github.com/rolandshoemaker/stapled/log"
 
-	"github.com/jmhodges/clock"
+	// "github.com/jmhodges/clock"
 	"golang.org/x/crypto/ocsp"
 )
 

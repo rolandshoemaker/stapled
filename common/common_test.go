@@ -3,7 +3,9 @@ package common
 import (
 	"bytes"
 	"crypto"
+	"net/url"
 	"testing"
+	"time"
 )
 
 func TestReadCertificate(t *testing.T) {
@@ -33,5 +35,53 @@ func TestHashNameAndPKI(t *testing.T) {
 	}
 	if bytes.Compare(expectedPKIHash, pkiHash) != 0 {
 		t.Fatalf("Didn't get expected pki hash: wanted %X, got %X", expectedPKIHash, pkiHash)
+	}
+}
+
+func TestHumanDuration(t *testing.T) {
+	for _, tc := range []struct {
+		duration time.Duration
+		expected string
+	}{
+		{0, "instantly"},
+		{time.Second, "1 second"},
+		{2 * time.Second, "2 seconds"},
+		{time.Minute, "1 minute"},
+		{2 * time.Minute, "2 minutes"},
+		{time.Hour, "1 hour"},
+		{2 * time.Hour, "2 hours"},
+		{2 * time.Minute, "2 minutes"},
+		{24 * time.Hour, "1 day"},
+		{48 * time.Hour, "2 days"},
+		{(48 * time.Hour) + (2 * time.Hour) + (2 * time.Minute) + (2 * time.Second), "2 days 2 hours 2 minutes 2 seconds"},
+	} {
+		humanized := HumanDuration(tc.duration)
+		if humanized != tc.expected {
+			t.Fatalf("Got unexpected results: expected %q, got %q", tc.expected, humanized)
+		}
+	}
+}
+
+func TestRandomURL(t *testing.T) {
+	urlA, _ := url.Parse("http://a")
+	urlB, _ := url.Parse("http://b")
+	list := []*url.URL{urlA, urlB}
+	random := randomURL(list)
+	if !(random.String() == "http://a" || random.String() == "http://b") {
+		t.Fatalf("randomURL returned URL not in provided list: %s", random.String())
+	}
+}
+
+func TestProxyFuncy(t *testing.T) {
+	pf, err := ProxyFunc([]string{"http://a", "http://b"})
+	if err != nil {
+		t.Fatalf("Failed to create the proxy choosing function: %s", err)
+	}
+	random, err := pf(nil)
+	if err != nil {
+		t.Fatalf("Function returned from ProxyFunc returned an error: %s", err)
+	}
+	if !(random.String() == "http://a" || random.String() == "http://b") {
+		t.Fatalf("Function returned from ProxyFunc returned URL not in provided list: %s", random.String())
 	}
 }

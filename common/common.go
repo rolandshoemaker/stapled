@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/rolandshoemaker/stapled/log"
@@ -25,6 +26,9 @@ func HumanDuration(d time.Duration) string {
 		return input + "s"
 	}
 	nanos := time.Duration(d.Nanoseconds())
+	if nanos == 0 {
+		return "instantly"
+	}
 	days := int(nanos / (time.Hour * 24))
 	nanos %= time.Hour * 24
 	hours := int(nanos / (time.Hour))
@@ -42,10 +46,10 @@ func HumanDuration(d time.Duration) string {
 	if minutes > 0 {
 		s += fmt.Sprintf("%d %s ", minutes, maybePluralize("minute", minutes))
 	}
-	if seconds >= 0 {
+	if seconds > 0 {
 		s += fmt.Sprintf("%d %s ", seconds, maybePluralize("second", seconds))
 	}
-	return s
+	return strings.TrimRight(s, " ")
 }
 
 type Failer interface {
