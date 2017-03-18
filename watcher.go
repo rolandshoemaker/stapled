@@ -2,7 +2,7 @@ package main
 
 import (
 	"io/ioutil"
-	"path"
+	"path/filepath"
 )
 
 type dirWatcher struct {
@@ -31,13 +31,14 @@ func (w *dirWatcher) check() (added, removed []string, err error) {
 	}
 	for name := range w.files {
 		if _, present := files[name]; !present {
-			removed = append(removed, path.Join(w.folder, name))
+			removed = append(removed, filepath.Join(w.folder, name))
+			delete(w.files, name)
 		}
 	}
 	for name := range files {
 		if _, present := w.files[name]; !present {
 			w.files[name] = struct{}{}
-			added = append(added, path.Join(w.folder, name))
+			added = append(added, filepath.Join(w.folder, name))
 		}
 	}
 	return
