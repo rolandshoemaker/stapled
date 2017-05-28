@@ -58,10 +58,11 @@ func Fetch(ctx context.Context, logger *log.Logger, responders []string, client 
 		if backoffSeconds > 0 {
 			logger.Info("[fetcher] Backing off for %d seconds", backoffSeconds)
 		}
+		timer := time.NewTimer(time.Duration(backoffSeconds) * time.Second)
 		select {
 		case <-ctx.Done():
 			return nil, nil, "", 0, ctx.Err()
-		case <-time.NewTimer(time.Duration(backoffSeconds) * time.Second).C:
+		case <-timer.C:
 		}
 		if backoffSeconds > 0 {
 			backoffSeconds = 0
@@ -107,15 +108,21 @@ func Fetch(ctx context.Context, logger *log.Logger, responders []string, client 
 		}
 		ocspResp, err := ocsp.ParseResponse(body, issuer)
 		if err != nil {
+			if respErr, ok := err.(ocsp.ResponseError); ok {
+				logger.Err(
+					"[fetcher] Request for '%s' returned an unexpected OCSP response status: %s",
+					req.URL,
+					respErr.Status.String(),
+				)
+				backoffSeconds = 10
+				continue
+			}
 			logger.Err("[fetcher] Failed to parse response body from '%s': %s", req.URL, err)
 			backoffSeconds = 10
 			continue
 		}
-		if ocspResp.Status == int(ocsp.Success) {
-			eTag, cacheControl := resp.Header.Get("ETag"), parseCacheControl(resp.Header.Get("Cache-Control"))
-			return ocspResp, body, eTag, cacheControl, nil
-		}
-		logger.Err("[fetcher] Request for '%s' returned an invalid OCSP response status: %s", req.URL, ocsp.ResponseStatus(ocspResp.Status).String())
-		backoffSeconds = 10
+
+		eTag, cacheControl := resp.Header.Get("ETag"), parseCacheControl(resp.Header.Get("Cache-Control"))
+		return ocspResp, body, eTag, cacheControl, nil
 	}
 }
