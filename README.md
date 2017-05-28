@@ -2,6 +2,8 @@
 
 ![Stapler](https://media.giphy.com/media/RQwkFm79MYuUU/giphy.gif)
 
+[![Build Status](https://travis-ci.org/rolandshoemaker/stapled.svg?branch=master)](https://travis-ci.org/rolandshoemaker/stapled)
+
 > **Note:** This is still a work in progress, idk if I'd actually use it yet!
 
 A caching OCSP daemon that makes stapling less painful. Inspired in
