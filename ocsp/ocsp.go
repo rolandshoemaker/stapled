@@ -1,6 +1,7 @@
 package ocsp
 
 import (
+	"context"
 	"crypto/x509"
 	"encoding/base64"
 	"fmt"
@@ -14,7 +15,6 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ocsp"
-	"golang.org/x/net/context"
 
 	"github.com/rolandshoemaker/stapled/log"
 )

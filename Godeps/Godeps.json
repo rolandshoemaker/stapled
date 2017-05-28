@@ -4,7 +4,6 @@
 	"Packages": [
 		"github.com/jmhodges/clock",
 		"golang.org/x/crypto/ocsp",
-		"golang.org/x/net/context",
 		"gopkg.in/yaml.v2",
 		"github.com/cloudflare/cfssl/log",
 		"github.com/cloudflare/cfssl/ocsp"
@@ -55,10 +54,6 @@
 		{
 			"ImportPath": "golang.org/x/crypto/pkcs12/internal/rc2",
 			"Rev": "c1f54e1e2bcc5e3c8726b2d3470e92b79c2e8613"
-		},
-		{
-			"ImportPath": "golang.org/x/net/context",
-			"Rev": "ce84af2e5bf21582345e478b116afc7d4efaba3d"
 		},
 		{
 			"ImportPath": "gopkg.in/check.v1",

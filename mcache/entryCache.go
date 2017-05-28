@@ -2,6 +2,7 @@ package mcache
 
 import (
 	"bytes"
+	"context"
 	"crypto"
 	"crypto/sha256"
 	"crypto/x509"
@@ -19,7 +20,6 @@ import (
 
 	"github.com/jmhodges/clock"
 	"golang.org/x/crypto/ocsp"
-	"golang.org/x/net/context"
 
 	"github.com/rolandshoemaker/stapled/common"
 	"github.com/rolandshoemaker/stapled/config"
