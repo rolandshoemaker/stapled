@@ -29,15 +29,7 @@ func (s *stapled) Response(r *ocsp.Request) ([]byte, bool) {
 func (s *stapled) initResponder(httpAddr string, logger *log.Logger) {
 	cflog.SetLogger(&log.ResponderLogger{logger})
 	m := http.StripPrefix("/", cfocsp.NewResponder(s))
-	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// hack to make monitors that just check / returns a 200 are satisfied
-		if r.Method == "GET" && r.URL.Path == "/" {
-			w.Header().Set("Cache-Control", "max-age=43200") // Cache for 12 hours
-			w.WriteHeader(200)
-			return
-		}
-		m.ServeHTTP(w, r)
-	})
+	h := http.HandlerFunc(m.ServeHTTP)
 	s.responder = &http.Server{
 		Addr:    httpAddr,
 		Handler: h,

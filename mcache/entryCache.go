@@ -120,13 +120,13 @@ func (e *Entry) err(msg string, args ...interface{}) {
 // updateResponse updates the actual response body/metadata
 // stored in the entry
 func (e *Entry) updateResponse(eTag string, maxAge int, resp *ocsp.Response, respBytes []byte, stableBackings []scache.Cache) {
-	e.info("Updating with new response, expires in %s", common.HumanDuration(resp.NextUpdate.Sub(e.clk.Now())))
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.eTag = eTag
 	e.maxAge = time.Second * time.Duration(maxAge)
 	e.lastSync = e.clk.Now()
 	if resp != nil {
+		e.info("Updating with new response, expires in %s", common.HumanDuration(resp.NextUpdate.Sub(e.clk.Now())))
 		e.response = respBytes
 		e.nextUpdate = resp.NextUpdate
 		e.thisUpdate = resp.ThisUpdate
@@ -155,6 +155,13 @@ func (e *Entry) refreshResponse(ctx context.Context, stableBackings []scache.Cac
 		return err
 	}
 
+	if resp != nil {
+		err = stapledOCSP.VerifyResponse(e.clk.Now(), e.serial, resp)
+		if err != nil {
+			return err
+		}
+	}
+
 	e.mu.RLock()
 	if resp == nil || bytes.Compare(respBytes, e.response) == 0 {
 		e.mu.RUnlock()
@@ -163,10 +170,7 @@ func (e *Entry) refreshResponse(ctx context.Context, stableBackings []scache.Cac
 		return nil
 	}
 	e.mu.RUnlock()
-	err = stapledOCSP.VerifyResponse(e.clk.Now(), e.serial, resp)
-	if err != nil {
-		return err
-	}
+
 	e.updateResponse(eTag, maxAge, resp, respBytes, stableBackings)
 	e.info("Response has been refreshed")
 	return nil
@@ -238,7 +242,7 @@ type EntryCache struct {
 }
 
 // NewEntryCache constructs a EntryCache, starts the monitor, and returns it
-func NewEntryCache(clk clock.Clock, logger *log.Logger, monitorTick time.Duration, stableBackings []scache.Cache, client *http.Client, timeout time.Duration, issuers []*x509.Certificate, supportedHashes config.SupportedHashes) *EntryCache {
+func NewEntryCache(clk clock.Clock, logger *log.Logger, monitorTick time.Duration, stableBackings []scache.Cache, client *http.Client, timeout time.Duration, issuers []*x509.Certificate, supportedHashes config.SupportedHashes, disableMonitor bool) *EntryCache {
 	c := &EntryCache{
 		log:            logger,
 		entries:        make(map[string]*Entry),
@@ -250,7 +254,9 @@ func NewEntryCache(clk clock.Clock, logger *log.Logger, monitorTick time.Duratio
 		issuers:        newIssuerCache(issuers, supportedHashes),
 		hashes:         supportedHashes,
 	}
-	go c.monitor(monitorTick)
+	if !disableMonitor {
+		go c.monitor(monitorTick)
+	}
 	return c
 }
 
@@ -382,6 +388,8 @@ func (c *EntryCache) AddFromCertificate(filename string, issuer *x509.Certificat
 				break
 			}
 		}
+	} else {
+		c.issuers.add(issuer)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), c.requestTimeout)
 	defer cancel()

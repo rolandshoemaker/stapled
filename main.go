@@ -87,7 +87,7 @@ func main() {
 		}
 	}
 
-	c := mcache.NewEntryCache(clk, logger, 1*time.Minute, stableBackings, client, timeout, issuers, conf.SupportedHashes)
+	c := mcache.NewEntryCache(clk, logger, 1*time.Minute, stableBackings, client, timeout, issuers, conf.SupportedHashes, false)
 
 	logger.Info("Loading certificates")
 	for _, def := range conf.Definitions.Certificates {
