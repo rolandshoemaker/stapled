@@ -1,6 +1,6 @@
 {
 	"ImportPath": "github.com/rolandshoemaker/stapled",
-	"GoVersion": "go1.6",
+	"GoVersion": "go1.8.3",
 	"Packages": [
 		"github.com/jmhodges/clock",
 		"golang.org/x/crypto/ocsp",
